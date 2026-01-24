@@ -26,8 +26,7 @@ class ApplicationManager {
             } else {
                 print("[AppManager] App is not active, activating...")
                 // Not focused - bring to front
-                let success = runningApp.activate(options: [.activateIgnoringOtherApps])
-                print("[AppManager] Activation result: \(success)")
+                activateApp(runningApp)
             }
         } else {
             print("[AppManager] App not running, launching...")
@@ -36,19 +35,54 @@ class ApplicationManager {
         }
     }
     
+    /// Activate an app using multiple methods for reliability
+    private func activateApp(_ app: NSRunningApplication) {
+        let pid = app.processIdentifier
+        let appElement = AXUIElementCreateApplication(pid)
+        
+        // First, try to raise the main/first window via Accessibility API
+        // This is more reliable than just NSRunningApplication.activate()
+        var windowsRef: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
+        
+        if result == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty {
+            print("[AppManager] Raising first window via AXUIElement")
+            // Raise the first window
+            AXUIElementPerformAction(windows[0], kAXRaiseAction as CFString)
+            AXUIElementSetAttributeValue(windows[0], kAXMainAttribute as CFString, kCFBooleanTrue)
+        }
+        
+        // Also call activate to ensure the app becomes frontmost
+        let success = app.activate(options: [.activateIgnoringOtherApps])
+        print("[AppManager] NSRunningApplication.activate result: \(success)")
+        
+        // If activate failed, try unhiding the app
+        if !success {
+            print("[AppManager] Activate failed, trying unhide...")
+            let unhideSuccess = app.unhide()
+            print("[AppManager] Unhide result: \(unhideSuccess)")
+            // Try activate again after unhide
+            let retrySuccess = app.activate(options: [.activateIgnoringOtherApps])
+            print("[AppManager] Retry activate result: \(retrySuccess)")
+        }
+    }
+    
     /// Launch an application by bundle ID
     private func launchApp(bundleId: String) {
         guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
-            print("Could not find application with bundle ID: \(bundleId)")
+            print("[AppManager] Could not find application with bundle ID: \(bundleId)")
             return
         }
         
+        print("[AppManager] Launching app at: \(appURL.path)")
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
         
         NSWorkspace.shared.openApplication(at: appURL, configuration: config) { app, error in
             if let error = error {
-                print("Error launching \(bundleId): \(error)")
+                print("[AppManager] Error launching: \(error)")
+            } else {
+                print("[AppManager] Launch successful")
             }
         }
     }
@@ -62,11 +96,13 @@ class ApplicationManager {
         var windowsRef: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
         
+        let windowCount = (windowsRef as? [AXUIElement])?.count ?? 0
         guard result == .success,
               let windows = windowsRef as? [AXUIElement],
               windows.count > 1 else {
             // No windows or only one window - just ensure app is activated
-            app.activate(options: [.activateIgnoringOtherApps])
+            print("[AppManager] Only \(windowCount) window(s), just activating app")
+            activateApp(app)
             return
         }
         
