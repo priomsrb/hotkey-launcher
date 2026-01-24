@@ -88,13 +88,19 @@ class HotkeyManager {
         // Enable the event tap
         CGEvent.tapEnable(tap: eventTap, enable: true)
         
-        print("Hotkey manager started with \(hotkeys.count) hotkeys")
+        print("[HotkeyManager] ✅ Event tap created and enabled")
+        print("[HotkeyManager] Listening for \(hotkeys.count) hotkeys:")
+        for hotkey in hotkeys {
+            let modStr = hotkey.modifiers.joined(separator: "+")
+            print("  - \(modStr)+\(hotkey.key) (keyCode: \(hotkey.keyCode ?? 999)) -> \(hotkey.bundleId)")
+        }
     }
     
     /// Handle an incoming keyboard event
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         // Handle tap disabled events (re-enable if needed)
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            print("[HotkeyManager] ⚠️ Event tap was disabled, re-enabling...")
             if let eventTap = eventTap {
                 CGEvent.tapEnable(tap: eventTap, enable: true)
             }
@@ -107,26 +113,41 @@ class HotkeyManager {
         
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
+        let modifierMask: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
+        let activeModifiers = flags.intersection(modifierMask)
+        
+        // Log every keypress with modifiers
+        var modNames: [String] = []
+        if activeModifiers.contains(.maskCommand) { modNames.append("cmd") }
+        if activeModifiers.contains(.maskAlternate) { modNames.append("opt") }
+        if activeModifiers.contains(.maskControl) { modNames.append("ctrl") }
+        if activeModifiers.contains(.maskShift) { modNames.append("shift") }
+        let modStr = modNames.isEmpty ? "(none)" : modNames.joined(separator: "+")
+        print("[HotkeyManager] Key pressed: keyCode=\(keyCode), modifiers=\(modStr)")
         
         // Check against registered hotkeys
         for hotkey in hotkeys {
-            guard let hotkeyCode = hotkey.keyCode,
-                  keyCode == hotkeyCode else {
+            guard let hotkeyCode = hotkey.keyCode else {
+                print("[HotkeyManager] ⚠️ Hotkey '\(hotkey.key)' has no valid keyCode")
                 continue
             }
             
-            // Check modifiers match (ignoring non-modifier flags)
-            let requiredFlags = hotkey.cgEventFlags
-            let modifierMask: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
-            let activeModifiers = flags.intersection(modifierMask)
-            
-            if activeModifiers == requiredFlags {
-                // Match found! Call the callback on main thread
-                DispatchQueue.main.async {
-                    self.hotkeyCallback?(hotkey)
+            if keyCode == hotkeyCode {
+                let requiredFlags = hotkey.cgEventFlags
+                print("[HotkeyManager] Key '\(hotkey.key)' matched! Checking modifiers...")
+                print("  Required flags: \(requiredFlags.rawValue), Active flags: \(activeModifiers.rawValue)")
+                
+                if activeModifiers == requiredFlags {
+                    print("[HotkeyManager] ✅ MATCH! Triggering: \(hotkey.bundleId)")
+                    // Match found! Call the callback on main thread
+                    DispatchQueue.main.async {
+                        self.hotkeyCallback?(hotkey)
+                    }
+                    // Consume the event (don't pass to other apps)
+                    return nil
+                } else {
+                    print("[HotkeyManager] ❌ Modifiers don't match")
                 }
-                // Consume the event (don't pass to other apps)
-                return nil
             }
         }
         

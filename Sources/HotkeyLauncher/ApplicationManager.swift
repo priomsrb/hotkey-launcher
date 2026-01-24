@@ -12,19 +12,25 @@ class ApplicationManager {
     /// - If running but not focused: Bring to focus
     /// - If already focused: Cycle to next window
     func activateOrLaunch(bundleId: String) {
+        print("[AppManager] activateOrLaunch called for: \(bundleId)")
         let workspace = NSWorkspace.shared
         
         // Check if app is running
         if let runningApp = workspace.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) {
             // App is running
+            print("[AppManager] App is running (pid: \(runningApp.processIdentifier))")
             if runningApp.isActive {
+                print("[AppManager] App is active, cycling windows...")
                 // Already focused - cycle to next window
                 cycleWindows(for: runningApp)
             } else {
+                print("[AppManager] App is not active, activating...")
                 // Not focused - bring to front
-                runningApp.activate(options: [.activateIgnoringOtherApps])
+                let success = runningApp.activate(options: [.activateIgnoringOtherApps])
+                print("[AppManager] Activation result: \(success)")
             }
         } else {
+            print("[AppManager] App not running, launching...")
             // App not running - launch it
             launchApp(bundleId: bundleId)
         }
