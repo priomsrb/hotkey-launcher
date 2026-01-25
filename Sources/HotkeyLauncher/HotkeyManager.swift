@@ -123,19 +123,15 @@ class HotkeyManager {
         if activeModifiers.contains(.maskControl) { modNames.append("ctrl") }
         if activeModifiers.contains(.maskShift) { modNames.append("shift") }
         let modStr = modNames.isEmpty ? "(none)" : modNames.joined(separator: "+")
-        print("[HotkeyManager] Key pressed: keyCode=\(keyCode), modifiers=\(modStr)")
         
         // Check against registered hotkeys
         for hotkey in hotkeys {
             guard let hotkeyCode = hotkey.keyCode else {
-                print("[HotkeyManager] ⚠️ Hotkey '\(hotkey.key)' has no valid keyCode")
                 continue
             }
             
             if keyCode == hotkeyCode {
                 let requiredFlags = hotkey.cgEventFlags
-                print("[HotkeyManager] Key '\(hotkey.key)' matched! Checking modifiers...")
-                print("  Required flags: \(requiredFlags.rawValue), Active flags: \(activeModifiers.rawValue)")
                 
                 if activeModifiers == requiredFlags {
                     print("[HotkeyManager] ✅ MATCH! Triggering: \(hotkey.bundleId)")
@@ -145,8 +141,6 @@ class HotkeyManager {
                     }
                     // Consume the event (don't pass to other apps)
                     return nil
-                } else {
-                    print("[HotkeyManager] ❌ Modifiers don't match")
                 }
             }
         }
