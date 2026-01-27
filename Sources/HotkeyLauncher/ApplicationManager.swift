@@ -41,29 +41,55 @@ class ApplicationManager {
         let appElement = AXUIElementCreateApplication(pid)
         
         // First, try to raise the main/first window via Accessibility API
-        // This is more reliable than just NSRunningApplication.activate()
         var windowsRef: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
         
         if result == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty {
             print("[AppManager] Raising first window via AXUIElement")
-            // Raise the first window
             AXUIElementPerformAction(windows[0], kAXRaiseAction as CFString)
             AXUIElementSetAttributeValue(windows[0], kAXMainAttribute as CFString, kCFBooleanTrue)
         }
         
-        // Also call activate to ensure the app becomes frontmost
+        // Try NSRunningApplication.activate first
         let success = app.activate(options: [.activateIgnoringOtherApps])
         print("[AppManager] NSRunningApplication.activate result: \(success)")
         
-        // If activate failed, try unhiding the app
+        // If activate failed, use AppleScript as fallback (more reliable from terminal apps)
         if !success {
-            print("[AppManager] Activate failed, trying unhide...")
-            let unhideSuccess = app.unhide()
-            print("[AppManager] Unhide result: \(unhideSuccess)")
-            // Try activate again after unhide
-            let retrySuccess = app.activate(options: [.activateIgnoringOtherApps])
-            print("[AppManager] Retry activate result: \(retrySuccess)")
+            print("[AppManager] Activate failed, using AppleScript fallback...")
+            activateViaAppleScript(bundleId: app.bundleIdentifier ?? "", appName: app.localizedName ?? "")
+        }
+    }
+    
+    /// Use AppleScript to activate an app - more reliable when NSRunningApplication.activate fails
+    private func activateViaAppleScript(bundleId: String, appName: String) {
+        // Try by bundle ID first, then by name
+        let script: String
+        if !bundleId.isEmpty {
+            script = """
+            tell application id "\(bundleId)"
+                activate
+            end tell
+            """
+        } else if !appName.isEmpty {
+            script = """
+            tell application "\(appName)"
+                activate
+            end tell
+            """
+        } else {
+            print("[AppManager] AppleScript fallback failed: no bundle ID or app name")
+            return
+        }
+        
+        var error: NSDictionary?
+        if let appleScript = NSAppleScript(source: script) {
+            appleScript.executeAndReturnError(&error)
+            if let error = error {
+                print("[AppManager] AppleScript error: \(error)")
+            } else {
+                print("[AppManager] AppleScript activation successful")
+            }
         }
     }
     
