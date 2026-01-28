@@ -164,4 +164,50 @@ class ApplicationManager {
         // Set it as the main window if possible
         AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
     }
+    
+    /// Get the localized name of an application from its bundle ID
+    func getAppName(bundleId: String) -> String {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+            let name = (try? url.resourceValues(forKeys: [.localizedNameKey]).localizedName) ?? url.deletingPathExtension().lastPathComponent
+            return name
+        }
+        return bundleId
+    }
+    
+    /// Get the icon of an application from its bundle ID
+    func getAppIcon(bundleId: String) -> NSImage? {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+            return NSWorkspace.shared.icon(forFile: url.path)
+        }
+        return nil
+    }
+    
+    /// Show a file picker to select an application
+    func pickApplication(completion: @escaping (String?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.application, .aliasFile]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                if let bundle = Bundle(url: url), let bundleId = bundle.bundleIdentifier {
+                    completion(bundleId)
+                } else {
+                    // Try to get bundle ID via workspace if Bundle(url:) fails (e.g. for aliases)
+                    let workspace = NSWorkspace.shared
+                    if let bundleId = workspace.frontmostApplication?.bundleIdentifier {
+                         // This is not ideal, but aliases are tricky. 
+                         // For now, assume it's a direct app path.
+                    }
+                    // Fallback: use the app name or try to find it
+                    completion(nil)
+                }
+            } else {
+                completion(nil)
+            }
+        }
+    }
 }

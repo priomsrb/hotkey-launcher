@@ -37,6 +37,22 @@ struct Hotkey: Codable, Equatable {
         return Hotkey.keyCodeMap[key.lowercased()]
     }
     
+    /// Human-readable display string (e.g., "⌘T")
+    var displayString: String {
+        var result = ""
+        for modifier in modifiers {
+            switch modifier.lowercased() {
+            case "cmd", "command": result += "⌘"
+            case "opt", "option", "alt": result += "⌥"
+            case "ctrl", "control": result += "⌃"
+            case "shift": result += "⇧"
+            default: break
+            }
+        }
+        result += key.uppercased()
+        return result
+    }
+    
     /// Map of key characters to key codes
     private static let keyCodeMap: [String: UInt16] = [
         "a": 0x00, "s": 0x01, "d": 0x02, "f": 0x03, "h": 0x04,

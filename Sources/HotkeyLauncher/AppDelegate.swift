@@ -1,9 +1,11 @@
 import Cocoa
+import SwiftUI
 
 /// Main application delegate - sets up menu bar and coordinates components
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var hotkeys: [Hotkey] = []
+    private var settingsWindow: NSWindow?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set up the menu bar item
@@ -29,7 +31,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         HotkeyManager.shared.stop()
     }
-    
+
     /// Set up the menu bar status item
     private func setupStatusBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -44,6 +46,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         
         menu.addItem(NSMenuItem(title: "HotkeyLauncher", action: nil, keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+        
         menu.addItem(NSMenuItem.separator())
         
         let reloadItem = NSMenuItem(title: "Reload Config", action: #selector(reloadConfig), keyEquivalent: "r")
@@ -61,6 +69,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
         
         statusItem?.menu = menu
+    }
+    
+    /// Show the settings window
+    @objc private func showSettings() {
+        if settingsWindow == nil {
+            let contentView = SettingsView()
+            
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered, defer: false)
+            window.center()
+            window.title = "HotkeyLauncher Settings"
+            window.contentView = NSHostingView(rootView: contentView)
+            window.makeKeyAndOrderFront(nil)
+            settingsWindow = window
+            
+            // Bring to front even if app is an agent
+            NSApp.activate(ignoringOtherApps: true)
+        } else {
+            settingsWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
     
     /// Handle a hotkey press
