@@ -1,3 +1,5 @@
+- [ ] Allow closing the settings window using escape and cmd+w
+- [ ] Allow quitting the application using cmd+q
 - [ ] When there are 3+ windows, allow cycling through them all
 - [ ] Start at login
 - [ ] Show message when switching apps

@@ -1,14 +1,51 @@
 import SwiftUI
 import Carbon
 
-struct ShortcutRecorder: NSViewRepresentable {
+struct ShortcutRecorder: View {
+    @Binding var key: String
+    @Binding var modifiers: [String]
+    
+    var body: some View {
+        ZStack {
+            ShortcutNSViewRepresentable(key: $key, modifiers: $modifiers)
+            
+            if key.isEmpty {
+                Text("Press a key combination...")
+                    .foregroundColor(.secondary)
+            } else {
+                Text(displayString(key: key, mods: modifiers))
+                    .font(.system(size: 32, weight: .bold, design: .monospaced))
+                    .padding()
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(8)
+            }
+        }
+    }
+    
+    private func displayString(key: String, mods: [String]) -> String {
+        var result = ""
+        for modifier in mods {
+            switch modifier.lowercased() {
+            case "cmd", "command": result += "⌘"
+            case "opt", "option", "alt": result += "⌥"
+            case "ctrl", "control": result += "⌃"
+            case "shift": result += "⇧"
+            default: break
+            }
+        }
+        result += key.uppercased()
+        return result
+    }
+}
+
+struct ShortcutNSViewRepresentable: NSViewRepresentable {
     @Binding var key: String
     @Binding var modifiers: [String]
     
     class Coordinator: NSObject {
-        var parent: ShortcutRecorder
+        var parent: ShortcutNSViewRepresentable
         
-        init(_ parent: ShortcutRecorder) {
+        init(_ parent: ShortcutNSViewRepresentable) {
             self.parent = parent
         }
         

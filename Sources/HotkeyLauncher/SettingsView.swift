@@ -99,20 +99,9 @@ struct SettingsView: View {
                 VStack(alignment: .leading) {
                     Text("Shortcut:")
                     ShortcutRecorder(key: $newKey, modifiers: $newModifiers)
-                        .frame(height: 100)
+                        .frame(height: 120)
                         .background(Color.secondary.opacity(0.05))
                         .cornerRadius(8)
-                    
-                    if !newKey.isEmpty {
-                        Text("Recorded: \(displayString(key: newKey, mods: newModifiers))")
-                            .font(.caption)
-                            .padding(.top, 4)
-                    } else {
-                        Text("Focus the box and press keys...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding(.top, 4)
-                    }
                 }
                 
                 HStack {
@@ -157,20 +146,5 @@ struct SettingsView: View {
         newAppBundleId = ""
         newKey = ""
         newModifiers = []
-    }
-    
-    private func displayString(key: String, mods: [String]) -> String {
-        var result = ""
-        for modifier in mods {
-            switch modifier.lowercased() {
-            case "cmd", "command": result += "⌘"
-            case "opt", "option", "alt": result += "⌥"
-            case "ctrl", "control": result += "⌃"
-            case "shift": result += "⇧"
-            default: break
-            }
-        }
-        result += key.uppercased()
-        return result
     }
 }
