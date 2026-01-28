@@ -2,7 +2,7 @@ import Cocoa
 import SwiftUI
 
 /// Main application delegate - sets up menu bar and coordinates components
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var hotkeys: [Hotkey] = []
     private var settingsWindow: NSWindow?
@@ -79,7 +79,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Show the settings window
     @objc private func showSettings() {
         if settingsWindow == nil {
-            let contentView = SettingsView()
+            let contentView = SettingsView(onClose: { [weak self] in
+                self?.settingsWindow?.close()
+            })
             
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
@@ -87,6 +89,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 backing: .buffered, defer: false)
             window.center()
             window.title = "HotkeyLauncher Settings"
+            window.isReleasedWhenClosed = false
+            window.delegate = self
             window.contentView = NSHostingView(rootView: contentView)
             window.makeKeyAndOrderFront(nil)
             settingsWindow = window
@@ -96,6 +100,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             settingsWindow?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    // MARK: - NSWindowDelegate
+
+    func windowWillClose(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window === settingsWindow {
+            settingsWindow = nil
         }
     }
     

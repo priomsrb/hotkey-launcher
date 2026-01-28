@@ -115,7 +115,27 @@ class ShortcutNSView: NSView {
     override var acceptsFirstResponder: Bool { true }
     
     override func keyDown(with event: NSEvent) {
-        onKeyEvent?(event)
+        let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        
+        // If it's Cmd+W or Cmd+Q, let it pass through to the system/SwiftUI
+        if modifierFlags == .command && (event.charactersIgnoringModifiers == "w" || event.charactersIgnoringModifiers == "q") {
+            super.keyDown(with: event)
+            return
+        }
+        
+        // If it's just Escape, let it pass through (for cancelling sheets/windows)
+        if modifierFlags.isEmpty && event.keyCode == 53 {
+            super.keyDown(with: event)
+            return
+        }
+        
+        // Otherwise, if we have modifiers, capture it
+        if !modifierFlags.isEmpty {
+            onKeyEvent?(event)
+        } else {
+            // Otherwise let it pass (Tab, Space, etc. if no modifiers)
+            super.keyDown(with: event)
+        }
     }
     
     override func draw(_ dirtyRect: NSRect) {

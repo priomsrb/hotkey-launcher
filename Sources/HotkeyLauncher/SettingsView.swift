@@ -15,6 +15,7 @@ struct SettingsView: View {
     
     @State private var hotkeys: [Hotkey] = []
     @State private var sheetMode: SheetMode?
+    var onClose: (() -> Void)? = nil
     
     @State private var newAppBundleId = ""
     @State private var newKey = ""
@@ -139,6 +140,7 @@ struct SettingsView: View {
                     Button("Cancel") {
                         sheetMode = nil
                     }
+                    .keyboardShortcut(.cancelAction)
                     
                     Spacer()
                     
@@ -186,7 +188,11 @@ struct SettingsView: View {
     }
     
     private func closeWindow() {
-        NSApplication.shared.keyWindow?.close()
+        if let onClose = onClose {
+            onClose()
+        } else {
+            NSApplication.shared.keyWindow?.close()
+        }
     }
     
     private func deleteHotkey(_ hotkey: Hotkey) {

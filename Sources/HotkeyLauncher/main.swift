@@ -1,7 +1,11 @@
 import Cocoa
 
-// Create and run the application
+// Create the application
 let app = NSApplication.shared
+
+// Create and retain the delegate
+// We keep a strong reference here to prevent it from being deallocated
+// since NSApplication.delegate is a weak property.
 let delegate = AppDelegate()
 app.delegate = delegate
 

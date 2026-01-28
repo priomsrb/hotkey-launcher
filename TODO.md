@@ -1,10 +1,11 @@
-- [ ] Fix bug with opening settings twice
+- [ ] Only allow one instance of the application. Launching again should open settings
+- [ ] Simplify settings screen. Remove pencil button. Allow editing directly by clicking
 - [ ] When there are 3+ windows, allow cycling through them all
 - [ ] Start at login
-- [ ] Show message when switching apps
+- [ ] Show message when launching app
+- [ ] Have option to show message when switching apps
 - [ ] Package into an app
 - [ ] Allow switching between multiple fullscreen and windowed apps
-- [ ] Only allow one instance of the application
 
 ## Done
 
@@ -15,3 +16,4 @@
 - [x] Allow closing the settings window using escape and cmd+w
 - [x] Allow quitting the application using cmd+q
 - [x] Allow launching with --settings
+- [x] Fix bug with opening settings twice
