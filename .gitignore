@@ -1,2 +1,5 @@
 build
 .build
+.DS_Store
+Info.plist
+HotkeyLauncher.app

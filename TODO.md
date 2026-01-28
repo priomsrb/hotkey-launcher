@@ -1,10 +1,12 @@
 - [ ] Simplify settings screen. Remove pencil button. Allow editing directly by clicking
 - [ ] When there are 3+ windows, allow cycling through them all
 - [ ] Start at login
+- [ ] When activating the app, show the settings page
+- [ ] Add an icon
 - [ ] Show message when launching app
 - [ ] Have option to show message when switching apps
-- [ ] Package into an app
 - [ ] Allow switching between multiple fullscreen and windowed apps
+- [ ] Make bundling happen in a separate folder. Update .gitignore to remove old bundling excludes if requried
 
 ## Done
 
@@ -17,3 +19,4 @@
 - [x] Allow launching with --settings
 - [x] Fix bug with opening settings twice
 - [x] Only allow one instance of the application. Launching again should open settings
+- [x] Package into an app
