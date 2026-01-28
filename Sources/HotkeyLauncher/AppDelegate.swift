@@ -31,10 +31,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if CommandLine.arguments.contains("--settings") {
             showSettings()
         }
+
+        // Register for distributed notification to show settings when another instance tries to launch
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(showSettings),
+            name: NSNotification.Name("com.priomsrb.HotkeyLauncher.ShowSettings"),
+            object: nil
+        )
     }
     
     func applicationWillTerminate(_ notification: Notification) {
         HotkeyManager.shared.stop()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showSettings()
+        return true
     }
 
     /// Set up the menu bar status item

@@ -1,4 +1,3 @@
-- [ ] Only allow one instance of the application. Launching again should open settings
 - [ ] Simplify settings screen. Remove pencil button. Allow editing directly by clicking
 - [ ] When there are 3+ windows, allow cycling through them all
 - [ ] Start at login
@@ -17,3 +16,4 @@
 - [x] Allow quitting the application using cmd+q
 - [x] Allow launching with --settings
 - [x] Fix bug with opening settings twice
+- [x] Only allow one instance of the application. Launching again should open settings
