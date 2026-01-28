@@ -26,6 +26,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let modStr = hotkey.modifiers.joined(separator: "+")
             print("  \(modStr)+\(hotkey.key) -> \(hotkey.bundleId)")
         }
+
+        // Check for command line flags
+        if CommandLine.arguments.contains("--settings") {
+            showSettings()
+        }
     }
     
     func applicationWillTerminate(_ notification: Notification) {

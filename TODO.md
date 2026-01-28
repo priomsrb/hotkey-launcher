@@ -1,10 +1,10 @@
-- [ ] Allow launching with --settings
 - [ ] Fix bug with opening settings twice
 - [ ] When there are 3+ windows, allow cycling through them all
 - [ ] Start at login
 - [ ] Show message when switching apps
 - [ ] Package into an app
 - [ ] Allow switching between multiple fullscreen and windowed apps
+- [ ] Only allow one instance of the application
 
 ## Done
 
@@ -14,3 +14,4 @@
 - [x] Allow editing config with UI
 - [x] Allow closing the settings window using escape and cmd+w
 - [x] Allow quitting the application using cmd+q
+- [x] Allow launching with --settings
