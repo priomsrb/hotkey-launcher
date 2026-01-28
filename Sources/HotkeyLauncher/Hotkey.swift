@@ -2,7 +2,9 @@ import Foundation
 import CoreGraphics
 
 /// Represents a hotkey configuration mapping a key combination to an application
-struct Hotkey: Codable, Equatable {
+struct Hotkey: Codable, Equatable, Identifiable {
+    var id: String { bundleId }
+    
     /// The key character (e.g., "t", "s", "f")
     let key: String
     

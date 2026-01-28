@@ -1,8 +1,21 @@
 import SwiftUI
 
 struct SettingsView: View {
+    enum SheetMode: Identifiable {
+        case add
+        case edit(Hotkey)
+        
+        var id: String {
+            switch self {
+            case .add: return "add"
+            case .edit(let h): return "edit-\(h.bundleId)"
+            }
+        }
+    }
+    
     @State private var hotkeys: [Hotkey] = []
-    @State private var showingAddSheet = false
+    @State private var sheetMode: SheetMode?
+    
     @State private var newAppBundleId = ""
     @State private var newKey = ""
     @State private var newModifiers: [String] = []
@@ -10,7 +23,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             List {
-                ForEach(hotkeys, id: \.bundleId) { hotkey in
+                ForEach(hotkeys) { hotkey in
                     HStack {
                         if let icon = ApplicationManager.shared.getAppIcon(bundleId: hotkey.bundleId) {
                             Image(nsImage: icon)
@@ -39,6 +52,15 @@ struct SettingsView: View {
                             .cornerRadius(4)
                         
                         Button(action: {
+                            editHotkey(hotkey)
+                        }) {
+                            Image(systemName: "pencil")
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .padding(.leading, 8)
+                        
+                        Button(action: {
                             deleteHotkey(hotkey)
                         }) {
                             Image(systemName: "trash")
@@ -56,7 +78,7 @@ struct SettingsView: View {
             
             HStack {
                 Button(action: {
-                    showingAddSheet = true
+                    prepareForAdd()
                 }) {
                     Label("Add Hotkey", systemImage: "plus")
                 }
@@ -65,18 +87,27 @@ struct SettingsView: View {
                 Spacer()
                 
                 Button("Done") {
-                    NSApplication.shared.keyWindow?.close()
+                    closeWindow()
                 }
+                .keyboardShortcut("w", modifiers: .command)
+                .keyboardShortcut(.defaultAction)
                 .padding()
             }
+            
+            // Hidden buttons for global shortcuts
+            Group {
+                Button("") { closeWindow() }.keyboardShortcut(.cancelAction)
+                Button("") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q", modifiers: .command)
+            }
+            .opacity(0).frame(width: 0, height: 0)
         }
         .frame(minWidth: 500, minHeight: 400)
         .onAppear {
             hotkeys = ConfigManager.shared.loadHotkeys()
         }
-        .sheet(isPresented: $showingAddSheet) {
+        .sheet(item: $sheetMode) { mode in
             VStack(spacing: 20) {
-                Text("Add New Hotkey")
+                Text(title(for: mode))
                     .font(.title2)
                     .bold()
                 
@@ -106,15 +137,14 @@ struct SettingsView: View {
                 
                 HStack {
                     Button("Cancel") {
-                        resetNewHotkey()
-                        showingAddSheet = false
+                        sheetMode = nil
                     }
                     
                     Spacer()
                     
-                    Button("Add") {
-                        addHotkey()
-                        showingAddSheet = false
+                    Button(saveButtonTitle(for: mode)) {
+                        saveOrAddHotkey(original: hotkey(from: mode))
+                        sheetMode = nil
                     }
                     .disabled(newAppBundleId.isEmpty || newKey.isEmpty)
                     .buttonStyle(BorderedProminentButtonStyle())
@@ -122,29 +152,78 @@ struct SettingsView: View {
             }
             .padding(30)
             .frame(width: 400)
+            .onAppear {
+                initializeForm(from: mode)
+            }
         }
     }
     
+    private func title(for mode: SheetMode) -> String {
+        if case .edit = mode { return "Edit Hotkey" }
+        return "Add New Hotkey"
+    }
+    
+    private func saveButtonTitle(for mode: SheetMode) -> String {
+        if case .edit = mode { return "Save" }
+        return "Add"
+    }
+    
+    private func hotkey(from mode: SheetMode) -> Hotkey? {
+        if case .edit(let h) = mode { return h }
+        return nil
+    }
+    
+    private func initializeForm(from mode: SheetMode) {
+        if case .edit(let h) = mode {
+            newAppBundleId = h.bundleId
+            newKey = h.key
+            newModifiers = h.modifiers
+        } else {
+            newAppBundleId = ""
+            newKey = ""
+            newModifiers = []
+        }
+    }
+    
+    private func closeWindow() {
+        NSApplication.shared.keyWindow?.close()
+    }
+    
     private func deleteHotkey(_ hotkey: Hotkey) {
-        hotkeys.removeAll { $0 == hotkey }
-        saveHotkeys()
+        hotkeys.removeAll { $0.id == hotkey.id }
+        saveToConfig()
     }
     
-    private func addHotkey() {
-        let hotkey = Hotkey(key: newKey, modifiers: newModifiers, bundleId: newAppBundleId)
-        hotkeys.append(hotkey)
-        saveHotkeys()
-        resetNewHotkey()
+    private func prepareForAdd() {
+        sheetMode = .add
     }
     
-    private func saveHotkeys() {
+    private func editHotkey(_ hotkey: Hotkey) {
+        sheetMode = .edit(hotkey)
+    }
+    
+    private func saveOrAddHotkey(original: Hotkey?) {
+        let newHotkey = Hotkey(key: newKey, modifiers: newModifiers, bundleId: newAppBundleId)
+        
+        if let original = original {
+            if let index = hotkeys.firstIndex(where: { $0.id == original.id }) {
+                hotkeys[index] = newHotkey
+            } else {
+                hotkeys.append(newHotkey)
+            }
+        } else {
+            if let index = hotkeys.firstIndex(where: { $0.bundleId == newAppBundleId }) {
+                hotkeys[index] = newHotkey
+            } else {
+                hotkeys.append(newHotkey)
+            }
+        }
+        
+        saveToConfig()
+    }
+    
+    private func saveToConfig() {
         ConfigManager.shared.saveHotkeys(hotkeys)
         HotkeyManager.shared.updateHotkeys(hotkeys)
-    }
-    
-    private func resetNewHotkey() {
-        newAppBundleId = ""
-        newKey = ""
-        newModifiers = []
     }
 }

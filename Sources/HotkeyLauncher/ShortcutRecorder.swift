@@ -4,20 +4,30 @@ import Carbon
 struct ShortcutRecorder: View {
     @Binding var key: String
     @Binding var modifiers: [String]
+    @State private var isFocused = false
     
     var body: some View {
         ZStack {
-            ShortcutNSViewRepresentable(key: $key, modifiers: $modifiers)
+            ShortcutNSViewRepresentable(key: $key, modifiers: $modifiers, isFocused: $isFocused)
             
             if key.isEmpty {
-                Text("Press a key combination...")
-                    .foregroundColor(.secondary)
+                Text(isFocused ? "Recording... Press keys" : "Click to record shortcut")
+                    .foregroundColor(isFocused ? .accentColor : .secondary)
+                    .font(.headline)
             } else {
-                Text(displayString(key: key, mods: modifiers))
-                    .font(.system(size: 32, weight: .bold, design: .monospaced))
-                    .padding()
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(8)
+                VStack {
+                    Text(displayString(key: key, mods: modifiers))
+                        .font(.system(size: 32, weight: .bold, design: .monospaced))
+                        .padding()
+                        .background(Color.secondary.opacity(0.1))
+                        .cornerRadius(8)
+                    
+                    if isFocused {
+                        Text("Press new keys to change")
+                            .font(.caption)
+                            .foregroundColor(.accentColor)
+                    }
+                }
             }
         }
     }
@@ -41,6 +51,7 @@ struct ShortcutRecorder: View {
 struct ShortcutNSViewRepresentable: NSViewRepresentable {
     @Binding var key: String
     @Binding var modifiers: [String]
+    @Binding var isFocused: Bool
     
     class Coordinator: NSObject {
         var parent: ShortcutNSViewRepresentable
@@ -86,6 +97,11 @@ struct ShortcutNSViewRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = ShortcutNSView()
         view.onKeyEvent = context.coordinator.handleKeyEvent
+        view.onFocusChange = { focused in
+            DispatchQueue.main.async {
+                self.isFocused = focused
+            }
+        }
         return view
     }
     
@@ -94,6 +110,7 @@ struct ShortcutNSViewRepresentable: NSViewRepresentable {
 
 class ShortcutNSView: NSView {
     var onKeyEvent: ((NSEvent) -> Void)?
+    var onFocusChange: ((Bool) -> Void)?
     
     override var acceptsFirstResponder: Bool { true }
     
@@ -103,21 +120,33 @@ class ShortcutNSView: NSView {
     
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8)
+        
         if window?.firstResponder == self {
-            NSColor.selectedControlColor.setStroke()
-            let path = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
-            path.lineWidth = 2
-            path.stroke()
+            NSColor.controlAccentColor.setStroke()
+            path.lineWidth = 3
+            
+            // Add a subtle background highlight
+            NSColor.controlAccentColor.withAlphaComponent(0.05).setFill()
+            path.fill()
+        } else {
+            NSColor.separatorColor.setStroke()
+            path.lineWidth = 1
         }
+        
+        path.stroke()
     }
     
     override func becomeFirstResponder() -> Bool {
         needsDisplay = true
+        onFocusChange?(true)
         return super.becomeFirstResponder()
     }
     
     override func resignFirstResponder() -> Bool {
         needsDisplay = true
+        onFocusChange?(false)
         return super.resignFirstResponder()
     }
 }
