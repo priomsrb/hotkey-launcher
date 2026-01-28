@@ -50,6 +50,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        showSettings()
+    }
+
     /// Set up the menu bar status item
     private func setupStatusBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)

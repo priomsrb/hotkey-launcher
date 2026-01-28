@@ -1,8 +1,9 @@
 - [ ] Simplify settings screen. Remove pencil button. Allow editing directly by clicking
-- [ ] When there are 3+ windows, allow cycling through them all
 - [ ] Start at login
-- [ ] When activating the app, show the settings page
 - [ ] Add an icon
+- [ ] When there are 3+ windows, allow cycling through them all
+- [ ] Fix accessibility permission not working when moving bundle to application folder.
+- [ ] Does it need to be restarted after granting permissions? Any way to make it easy for the user? Maybe adding a screenshot?
 - [ ] Show message when launching app
 - [ ] Have option to show message when switching apps
 - [ ] Allow switching between multiple fullscreen and windowed apps
@@ -20,3 +21,4 @@
 - [x] Fix bug with opening settings twice
 - [x] Only allow one instance of the application. Launching again should open settings
 - [x] Package into an app
+- [x] When activating the app, show the settings page
