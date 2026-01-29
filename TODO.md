@@ -1,5 +1,7 @@
 ## TODO
 
+- [ ] Allow adding exceptions for apps where hotkeys shouldn't apply
+- [ ] Check if hotkeys work when entering password fields
 - [ ] Start at login
 - [ ] Add an icon
 - [ ] When there are 3+ windows, allow cycling through them all
