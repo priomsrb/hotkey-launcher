@@ -26,40 +26,32 @@ struct SettingsView: View {
             List {
                 ForEach(hotkeys) { hotkey in
                     HStack {
-                        if let icon = ApplicationManager.shared.getAppIcon(bundleId: hotkey.bundleId) {
-                            Image(nsImage: icon)
-                                .resizable()
-                                .frame(width: 32, height: 32)
-                        } else {
-                            Image(systemName: "app.dashed")
-                                .resizable()
-                                .frame(width: 32, height: 32)
-                        }
-                        
-                        VStack(alignment: .leading) {
+                        HStack {
+                            if let icon = ApplicationManager.shared.getAppIcon(bundleId: hotkey.bundleId) {
+                                Image(nsImage: icon)
+                                    .resizable()
+                                    .frame(width: 32, height: 32)
+                            } else {
+                                Image(systemName: "app.dashed")
+                                    .resizable()
+                                    .frame(width: 32, height: 32)
+                            }
+                            
                             Text(ApplicationManager.shared.getAppName(bundleId: hotkey.bundleId))
                                 .font(.headline)
-                            Text(hotkey.bundleId)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            
+                            Spacer()
+                            
+                            Text(hotkey.displayString)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.secondary.opacity(0.1))
+                                .cornerRadius(4)
                         }
-                        
-                        Spacer()
-                        
-                        Text(hotkey.displayString)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.secondary.opacity(0.1))
-                            .cornerRadius(4)
-                        
-                        Button(action: {
+                        .contentShape(Rectangle())
+                        .onTapGesture {
                             editHotkey(hotkey)
-                        }) {
-                            Image(systemName: "pencil")
-                                .foregroundColor(.accentColor)
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        .padding(.leading, 8)
                         
                         Button(action: {
                             deleteHotkey(hotkey)

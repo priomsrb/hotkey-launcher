@@ -1,4 +1,5 @@
-- [ ] Simplify settings screen. Remove pencil button. Allow editing directly by clicking
+## TODO
+
 - [ ] Start at login
 - [ ] Add an icon
 - [ ] When there are 3+ windows, allow cycling through them all
@@ -22,3 +23,4 @@
 - [x] Only allow one instance of the application. Launching again should open settings
 - [x] Package into an app
 - [x] When activating the app, show the settings page
+- [x] Simplify settings screen. Remove pencil button. Allow editing directly by clicking
