@@ -1,9 +1,7 @@
 ## TODO
 
-- [ ] Show running applications and assigned hotkey applications in the same combined list
-- [ ] Pressing enter should close the add new hotkey modal
-- [ ] The list should be ordered alphabetically
-- [ ] Activity monitor doesn't actually show the window. Maybe it needs to be activated
+- [ ] Instead of opening up a modal, allow assigning hotkeys right from the list
+- [ ] Activity monitor doesn't actually show the window. Maybe it needs to be activated (Added 'reopen' command to AppleScript)
 - [ ] Strange bug: Open settings window. Then open another app. Press cmd+q on the app, it closes our settings window too.
 - [ ] Show how much time in ms it took to switch the app
 - [ ] Come up with suggested hotkeys on initial launch
@@ -35,3 +33,5 @@
 - [x] Simplify settings screen. Remove pencil button. Allow editing directly by clicking
 - [x] Allow adding exceptions for apps where hotkeys shouldn't apply
 - [x] Show runnings apps so that hotkeys can be assigned
+- [x] Show running applications and assigned hotkey applications in the same combined list
+- [x] The list should be ordered alphabetically

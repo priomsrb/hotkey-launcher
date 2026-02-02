@@ -27,28 +27,68 @@ struct SettingsView: View {
     @State private var newKey = ""
     @State private var newModifiers: [String] = []
     
+    struct AppItem: Identifiable {
+        let bundleId: String
+        let name: String
+        let hotkey: Hotkey?
+        let runningApp: NSRunningApplication?
+        var id: String { bundleId }
+    }
+    
+    private var combinedApps: [AppItem] {
+        var items: [AppItem] = []
+        for hotkey in hotkeys {
+            let name = ApplicationManager.shared.getAppName(bundleId: hotkey.bundleId)
+            items.append(AppItem(bundleId: hotkey.bundleId, name: name, hotkey: hotkey, runningApp: nil))
+        }
+        for app in runningApps {
+            if let bundleId = app.bundleIdentifier {
+                let name = app.localizedName ?? "Unknown"
+                items.append(AppItem(bundleId: bundleId, name: name, hotkey: nil, runningApp: app))
+            }
+        }
+        return items.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             List {
-                if !runningApps.isEmpty {
-                    Section(header: Text("Running Applications (No hotkey)").font(.caption).foregroundColor(.secondary)) {
-                        ForEach(runningApps, id: \.processIdentifier) { app in
-                            HStack {
-                                if let icon = app.icon {
-                                    Image(nsImage: icon)
-                                        .resizable()
-                                        .frame(width: 32, height: 32)
-                                } else {
-                                    Image(systemName: "app.dashed")
-                                        .resizable()
-                                        .frame(width: 32, height: 32)
-                                }
-                                
-                                Text(app.localizedName ?? "Unknown")
+                Section(header: Text("Applications").font(.caption).foregroundColor(.secondary)) {
+                    ForEach(combinedApps) { item in
+                        HStack {
+                            if let icon = ApplicationManager.shared.getAppIcon(bundleId: item.bundleId) {
+                                Image(nsImage: icon)
+                                    .resizable()
+                                    .frame(width: 32, height: 32)
+                            } else {
+                                Image(systemName: "app.dashed")
+                                    .resizable()
+                                    .frame(width: 32, height: 32)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.name)
                                     .font(.headline)
+                            }
+                            
+                            Spacer()
+                            
+                            if let hotkey = item.hotkey {
+                                Text(hotkey.displayString)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.secondary.opacity(0.1))
+                                    .cornerRadius(4)
                                 
-                                Spacer()
-                                
+                                Button(action: {
+                                    deleteHotkey(hotkey)
+                                }) {
+                                    Image(systemName: "trash")
+                                        .foregroundColor(.red)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .padding(.leading, 8)
+                            } else if let app = item.runningApp {
                                 Button(action: {
                                     assignHotkey(for: app)
                                 }) {
@@ -60,52 +100,14 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
-                            .padding(.vertical, 4)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if let hotkey = item.hotkey {
+                                editHotkey(hotkey)
+                            } else if let app = item.runningApp {
                                 assignHotkey(for: app)
                             }
-                        }
-                    }
-                }
-                Section(header: Text("Hotkeys").font(.caption).foregroundColor(.secondary)) {
-                    ForEach(hotkeys) { hotkey in
-                        HStack {
-                            HStack {
-                                if let icon = ApplicationManager.shared.getAppIcon(bundleId: hotkey.bundleId) {
-                                    Image(nsImage: icon)
-                                        .resizable()
-                                        .frame(width: 32, height: 32)
-                                } else {
-                                    Image(systemName: "app.dashed")
-                                        .resizable()
-                                        .frame(width: 32, height: 32)
-                                }
-                                
-                                Text(ApplicationManager.shared.getAppName(bundleId: hotkey.bundleId))
-                                    .font(.headline)
-                                
-                                Spacer()
-                                
-                                Text(hotkey.displayString)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.secondary.opacity(0.1))
-                                    .cornerRadius(4)
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                editHotkey(hotkey)
-                            }
-                            
-                            Button(action: {
-                                deleteHotkey(hotkey)
-                            }) {
-                                Image(systemName: "trash")
-                                    .foregroundColor(.red)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .padding(.leading, 8)
                         }
                         .padding(.vertical, 4)
                     }
