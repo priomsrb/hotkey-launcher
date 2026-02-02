@@ -14,6 +14,7 @@ struct SettingsView: View {
     }
     
     @State private var hotkeys: [Hotkey] = []
+    @State private var exceptions: [String] = []
     @State private var sheetMode: SheetMode?
     var onClose: (() -> Void)? = nil
     
@@ -24,45 +25,78 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             List {
-                ForEach(hotkeys) { hotkey in
-                    HStack {
+                Section(header: Text("Hotkeys").font(.caption).foregroundColor(.secondary)) {
+                    ForEach(hotkeys) { hotkey in
                         HStack {
-                            if let icon = ApplicationManager.shared.getAppIcon(bundleId: hotkey.bundleId) {
-                                Image(nsImage: icon)
-                                    .resizable()
-                                    .frame(width: 32, height: 32)
-                            } else {
-                                Image(systemName: "app.dashed")
-                                    .resizable()
-                                    .frame(width: 32, height: 32)
+                            HStack {
+                                if let icon = ApplicationManager.shared.getAppIcon(bundleId: hotkey.bundleId) {
+                                    Image(nsImage: icon)
+                                        .resizable()
+                                        .frame(width: 32, height: 32)
+                                } else {
+                                    Image(systemName: "app.dashed")
+                                        .resizable()
+                                        .frame(width: 32, height: 32)
+                                }
+                                
+                                Text(ApplicationManager.shared.getAppName(bundleId: hotkey.bundleId))
+                                    .font(.headline)
+                                
+                                Spacer()
+                                
+                                Text(hotkey.displayString)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.secondary.opacity(0.1))
+                                    .cornerRadius(4)
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                editHotkey(hotkey)
                             }
                             
-                            Text(ApplicationManager.shared.getAppName(bundleId: hotkey.bundleId))
-                                .font(.headline)
-                            
-                            Spacer()
-                            
-                            Text(hotkey.displayString)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.secondary.opacity(0.1))
-                                .cornerRadius(4)
+                            Button(action: {
+                                deleteHotkey(hotkey)
+                            }) {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .padding(.leading, 8)
                         }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            editHotkey(hotkey)
-                        }
-                        
-                        Button(action: {
-                            deleteHotkey(hotkey)
-                        }) {
-                            Image(systemName: "trash")
-                                .foregroundColor(.red)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .padding(.leading, 8)
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
+                }
+                
+                if !exceptions.isEmpty {
+                    Section(header: Text("Exceptions (Hotkeys disabled when these apps are focused)").font(.caption).foregroundColor(.secondary)) {
+                        ForEach(exceptions, id: \.self) { bundleId in
+                            HStack {
+                                if let icon = ApplicationManager.shared.getAppIcon(bundleId: bundleId) {
+                                    Image(nsImage: icon)
+                                        .resizable()
+                                        .frame(width: 24, height: 24)
+                                } else {
+                                    Image(systemName: "app.badge.minus")
+                                        .resizable()
+                                        .frame(width: 24, height: 24)
+                                }
+                                
+                                Text(ApplicationManager.shared.getAppName(bundleId: bundleId))
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    deleteException(bundleId)
+                                }) {
+                                    Image(systemName: "trash")
+                                        .foregroundColor(.red)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
                 }
             }
             .listStyle(InsetListStyle())
@@ -75,7 +109,16 @@ struct SettingsView: View {
                 }) {
                     Label("Add Hotkey", systemImage: "plus")
                 }
-                .padding()
+                .padding(.leading)
+                .padding(.vertical)
+                
+                Button(action: {
+                    addException()
+                }) {
+                    Label("Add Exception", systemImage: "plus")
+                }
+                .padding(.leading)
+                .padding(.vertical)
                 
                 Spacer()
                 
@@ -96,7 +139,9 @@ struct SettingsView: View {
         }
         .frame(minWidth: 500, minHeight: 400)
         .onAppear {
-            hotkeys = ConfigManager.shared.loadHotkeys()
+            let config = ConfigManager.shared.loadConfig()
+            hotkeys = config.hotkeys
+            exceptions = config.exceptions
         }
         .sheet(item: $sheetMode) { mode in
             VStack(spacing: 20) {
@@ -192,8 +237,24 @@ struct SettingsView: View {
         saveToConfig()
     }
     
+    private func deleteException(_ bundleId: String) {
+        exceptions.removeAll { $0 == bundleId }
+        saveToConfig()
+    }
+    
     private func prepareForAdd() {
         sheetMode = .add
+    }
+    
+    private func addException() {
+        ApplicationManager.shared.pickApplication { bundleId in
+            if let bundleId = bundleId {
+                if !exceptions.contains(bundleId) {
+                    exceptions.append(bundleId)
+                    saveToConfig()
+                }
+            }
+        }
     }
     
     private func editHotkey(_ hotkey: Hotkey) {
@@ -221,7 +282,8 @@ struct SettingsView: View {
     }
     
     private func saveToConfig() {
-        ConfigManager.shared.saveHotkeys(hotkeys)
-        HotkeyManager.shared.updateHotkeys(hotkeys)
+        let config = HotkeyConfig(hotkeys: hotkeys, exceptions: exceptions)
+        ConfigManager.shared.saveConfig(config)
+        HotkeyManager.shared.updateConfig(hotkeys: hotkeys, exceptions: exceptions)
     }
 }

@@ -29,37 +29,46 @@ class ConfigManager {
         return URL(fileURLWithPath: configFileName)
     }
     
-    /// Load hotkeys from config file, creating default if not exists
-    func loadHotkeys() -> [Hotkey] {
+    /// Load configuration from config file, creating default if not exists
+    func loadConfig() -> HotkeyConfig {
         guard let url = configFileURL else {
             print("Could not determine config file location")
-            return defaultHotkeys()
+            return HotkeyConfig(hotkeys: defaultHotkeys(), exceptions: [])
         }
         
         // If config doesn't exist, create with defaults
         if !FileManager.default.fileExists(atPath: url.path) {
-            let defaults = defaultHotkeys()
-            saveHotkeys(defaults)
+            let defaultConfig = HotkeyConfig(hotkeys: defaultHotkeys(), exceptions: [])
+            saveConfig(defaultConfig)
             print("Created default config at: \(url.path)")
-            return defaults
+            return defaultConfig
         }
         
         do {
             let data = try Data(contentsOf: url)
             let config = try JSONDecoder().decode(HotkeyConfig.self, from: data)
-            print("Loaded \(config.hotkeys.count) hotkeys from: \(url.path)")
-            return config.hotkeys
+            print("Loaded configuration with \(config.hotkeys.count) hotkeys and \(config.exceptions.count) exceptions from: \(url.path)")
+            return config
         } catch {
             print("Error loading config: \(error). Using defaults.")
-            return defaultHotkeys()
+            return HotkeyConfig(hotkeys: defaultHotkeys(), exceptions: [])
         }
     }
     
-    /// Save hotkeys to config file
-    func saveHotkeys(_ hotkeys: [Hotkey]) {
+    /// Load hotkeys from config file
+    func loadHotkeys() -> [Hotkey] {
+        return loadConfig().hotkeys
+    }
+    
+    /// Load exceptions from config file
+    func loadExceptions() -> [String] {
+        return loadConfig().exceptions
+    }
+    
+    /// Save configuration to config file
+    func saveConfig(_ config: HotkeyConfig) {
         guard let url = configFileURL else { return }
         
-        let config = HotkeyConfig(hotkeys: hotkeys)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         
@@ -69,6 +78,18 @@ class ConfigManager {
         } catch {
             print("Error saving config: \(error)")
         }
+    }
+    
+    /// Save hotkeys to config file
+    func saveHotkeys(_ hotkeys: [Hotkey]) {
+        let exceptions = loadExceptions()
+        saveConfig(HotkeyConfig(hotkeys: hotkeys, exceptions: exceptions))
+    }
+    
+    /// Save exceptions to config file
+    func saveExceptions(_ exceptions: [String]) {
+        let hotkeys = loadHotkeys()
+        saveConfig(HotkeyConfig(hotkeys: hotkeys, exceptions: exceptions))
     }
     
     /// Default hotkey configuration

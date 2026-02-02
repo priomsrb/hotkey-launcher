@@ -73,4 +73,21 @@ struct Hotkey: Codable, Equatable, Identifiable {
 /// Configuration wrapper for JSON encoding/decoding
 struct HotkeyConfig: Codable {
     var hotkeys: [Hotkey]
+    var exceptions: [String]
+    
+    enum CodingKeys: String, CodingKey {
+        case hotkeys
+        case exceptions
+    }
+    
+    init(hotkeys: [Hotkey], exceptions: [String]) {
+        self.hotkeys = hotkeys
+        self.exceptions = exceptions
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        hotkeys = try container.decode([Hotkey].self, forKey: .hotkeys)
+        exceptions = try container.decodeIfPresent([String].self, forKey: .exceptions) ?? []
+    }
 }

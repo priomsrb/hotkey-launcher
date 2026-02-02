@@ -12,10 +12,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setupStatusBar()
         
         // Load configuration
-        hotkeys = ConfigManager.shared.loadHotkeys()
+        let config = ConfigManager.shared.loadConfig()
+        hotkeys = config.hotkeys
         
         // Start the hotkey manager
-        HotkeyManager.shared.start(hotkeys: hotkeys) { [weak self] hotkey in
+        HotkeyManager.shared.start(hotkeys: hotkeys, exceptions: config.exceptions) { [weak self] hotkey in
             self?.handleHotkey(hotkey)
         }
         
@@ -135,8 +136,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     
     /// Reload configuration from file
     @objc private func reloadConfig() {
-        hotkeys = ConfigManager.shared.loadHotkeys()
-        HotkeyManager.shared.updateHotkeys(hotkeys)
+        let config = ConfigManager.shared.loadConfig()
+        hotkeys = config.hotkeys
+        HotkeyManager.shared.updateConfig(hotkeys: hotkeys, exceptions: config.exceptions)
         print("Config reloaded")
     }
     

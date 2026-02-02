@@ -8,6 +8,7 @@ class HotkeyManager {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var hotkeys: [Hotkey] = []
+    private var exceptions: [String] = []
     private var hotkeyCallback: ((Hotkey) -> Void)?
     
     private init() {}
@@ -16,8 +17,9 @@ class HotkeyManager {
     /// - Parameters:
     ///   - hotkeys: Array of hotkey configurations
     ///   - callback: Called when a registered hotkey is pressed
-    func start(hotkeys: [Hotkey], callback: @escaping (Hotkey) -> Void) {
+    func start(hotkeys: [Hotkey], exceptions: [String], callback: @escaping (Hotkey) -> Void) {
         self.hotkeys = hotkeys
+        self.exceptions = exceptions
         self.hotkeyCallback = callback
         
         guard checkAccessibilityPermissions() else {
@@ -41,7 +43,13 @@ class HotkeyManager {
         }
     }
     
-    /// Update the registered hotkeys without restarting the event tap
+    /// Update the registered hotkeys and exceptions without restarting the event tap
+    func updateConfig(hotkeys: [Hotkey], exceptions: [String]) {
+        self.hotkeys = hotkeys
+        self.exceptions = exceptions
+    }
+    
+    /// Update the registered hotkeys without restarting the event tap (legacy)
     func updateHotkeys(_ hotkeys: [Hotkey]) {
         self.hotkeys = hotkeys
     }
@@ -111,18 +119,18 @@ class HotkeyManager {
             return Unmanaged.passRetained(event)
         }
         
+        // Check if the frontmost app is an exception
+        if let frontmostApp = NSWorkspace.shared.frontmostApplication,
+           let bundleId = frontmostApp.bundleIdentifier,
+           exceptions.contains(bundleId) {
+            // If the frontmost app is an exception, we don't handle any hotkeys
+            return Unmanaged.passRetained(event)
+        }
+        
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
         let modifierMask: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
         let activeModifiers = flags.intersection(modifierMask)
-        
-        // Log every keypress with modifiers
-        var modNames: [String] = []
-        if activeModifiers.contains(.maskCommand) { modNames.append("cmd") }
-        if activeModifiers.contains(.maskAlternate) { modNames.append("opt") }
-        if activeModifiers.contains(.maskControl) { modNames.append("ctrl") }
-        if activeModifiers.contains(.maskShift) { modNames.append("shift") }
-        let modStr = modNames.isEmpty ? "(none)" : modNames.joined(separator: "+")
         
         // Check against registered hotkeys
         for hotkey in hotkeys {

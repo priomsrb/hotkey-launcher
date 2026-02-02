@@ -1,6 +1,7 @@
 ## TODO
 
-- [ ] Allow adding exceptions for apps where hotkeys shouldn't apply
+- [ ] Show runnings apps so that hotkeys can be assigned
+- [ ] Come up with suggested hotkeys on initial launch
 - [ ] Check if hotkeys work when entering password fields
 - [ ] Start at login
 - [ ] Add an icon
@@ -26,3 +27,4 @@
 - [x] Package into an app
 - [x] When activating the app, show the settings page
 - [x] Simplify settings screen. Remove pencil button. Allow editing directly by clicking
+- [x] Allow adding exceptions for apps where hotkeys shouldn't apply
