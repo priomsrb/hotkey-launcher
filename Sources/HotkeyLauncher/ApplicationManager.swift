@@ -210,4 +210,15 @@ class ApplicationManager {
             }
         }
     }
+    
+    /// Get a list of running applications that can be targeted
+    func getRunningApplications() -> [NSRunningApplication] {
+        return NSWorkspace.shared.runningApplications.filter { app in
+            app.activationPolicy == .regular && app.bundleIdentifier != nil && app.bundleIdentifier != Bundle.main.bundleIdentifier
+        }.sorted { (app1, app2) -> Bool in
+            let name1 = app1.localizedName ?? ""
+            let name2 = app2.localizedName ?? ""
+            return name1.localizedCaseInsensitiveCompare(name2) == .orderedAscending
+        }
+    }
 }

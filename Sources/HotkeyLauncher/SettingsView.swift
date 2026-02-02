@@ -1,13 +1,16 @@
 import SwiftUI
+import AppKit
 
 struct SettingsView: View {
     enum SheetMode: Identifiable {
         case add
+        case addWithApp(String)
         case edit(Hotkey)
         
         var id: String {
             switch self {
             case .add: return "add"
+            case .addWithApp(let b): return "add-\(b)"
             case .edit(let h): return "edit-\(h.bundleId)"
             }
         }
@@ -15,7 +18,9 @@ struct SettingsView: View {
     
     @State private var hotkeys: [Hotkey] = []
     @State private var exceptions: [String] = []
+    @State private var runningApps: [NSRunningApplication] = []
     @State private var sheetMode: SheetMode?
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     var onClose: (() -> Void)? = nil
     
     @State private var newAppBundleId = ""
@@ -25,6 +30,44 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             List {
+                if !runningApps.isEmpty {
+                    Section(header: Text("Running Applications (No hotkey)").font(.caption).foregroundColor(.secondary)) {
+                        ForEach(runningApps, id: \.processIdentifier) { app in
+                            HStack {
+                                if let icon = app.icon {
+                                    Image(nsImage: icon)
+                                        .resizable()
+                                        .frame(width: 32, height: 32)
+                                } else {
+                                    Image(systemName: "app.dashed")
+                                        .resizable()
+                                        .frame(width: 32, height: 32)
+                                }
+                                
+                                Text(app.localizedName ?? "Unknown")
+                                    .font(.headline)
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    assignHotkey(for: app)
+                                }) {
+                                    Text("Assign Hotkey")
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.accentColor.opacity(0.1))
+                                        .cornerRadius(4)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                assignHotkey(for: app)
+                            }
+                        }
+                    }
+                }
                 Section(header: Text("Hotkeys").font(.caption).foregroundColor(.secondary)) {
                     ForEach(hotkeys) { hotkey in
                         HStack {
@@ -142,6 +185,10 @@ struct SettingsView: View {
             let config = ConfigManager.shared.loadConfig()
             hotkeys = config.hotkeys
             exceptions = config.exceptions
+            updateRunningApps()
+        }
+        .onReceive(timer) { _ in
+            updateRunningApps()
         }
         .sheet(item: $sheetMode) { mode in
             VStack(spacing: 20) {
@@ -213,11 +260,16 @@ struct SettingsView: View {
     }
     
     private func initializeForm(from mode: SheetMode) {
-        if case .edit(let h) = mode {
+        switch mode {
+        case .edit(let h):
             newAppBundleId = h.bundleId
             newKey = h.key
             newModifiers = h.modifiers
-        } else {
+        case .addWithApp(let b):
+            newAppBundleId = b
+            newKey = ""
+            newModifiers = []
+        case .add:
             newAppBundleId = ""
             newKey = ""
             newModifiers = []
@@ -285,5 +337,21 @@ struct SettingsView: View {
         let config = HotkeyConfig(hotkeys: hotkeys, exceptions: exceptions)
         ConfigManager.shared.saveConfig(config)
         HotkeyManager.shared.updateConfig(hotkeys: hotkeys, exceptions: exceptions)
+        updateRunningApps()
+    }
+    
+    private func updateRunningApps() {
+        let allRunning = ApplicationManager.shared.getRunningApplications()
+        let existingBundleIds = Set(hotkeys.map { $0.bundleId })
+        runningApps = allRunning.filter { app in
+            guard let bundleId = app.bundleIdentifier else { return false }
+            return !existingBundleIds.contains(bundleId)
+        }
+    }
+    
+    private func assignHotkey(for app: NSRunningApplication) {
+        if let bundleId = app.bundleIdentifier {
+            sheetMode = .addWithApp(bundleId)
+        }
     }
 }

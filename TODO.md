@@ -1,7 +1,13 @@
 ## TODO
 
-- [ ] Show runnings apps so that hotkeys can be assigned
+- [ ] Show running applications and assigned hotkey applications in the same combined list
+- [ ] Pressing enter should close the add new hotkey modal
+- [ ] The list should be ordered alphabetically
+- [ ] Activity monitor doesn't actually show the window. Maybe it needs to be activated
+- [ ] Strange bug: Open settings window. Then open another app. Press cmd+q on the app, it closes our settings window too.
+- [ ] Show how much time in ms it took to switch the app
 - [ ] Come up with suggested hotkeys on initial launch
+- [ ] Show a message when an app is launched
 - [ ] Check if hotkeys work when entering password fields
 - [ ] Start at login
 - [ ] Add an icon
@@ -28,3 +34,4 @@
 - [x] When activating the app, show the settings page
 - [x] Simplify settings screen. Remove pencil button. Allow editing directly by clicking
 - [x] Allow adding exceptions for apps where hotkeys shouldn't apply
+- [x] Show runnings apps so that hotkeys can be assigned
