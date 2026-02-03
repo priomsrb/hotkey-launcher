@@ -1,5 +1,8 @@
 ## TODO
 
+- [ ] Allow switching between multiple fullscreen and windowed apps
+- [ ] When there are 3+ windows, allow cycling through them all
+- [ ] Make it possible to use the tab key to navigate the UI. Should make it easy to set all the hotkeys using just the keyboard.
 - [ ] Strange bug: Open settings window. Then open another app. Press cmd+q on the app, it closes our settings window too.
 - [ ] Show how much time in ms it took to switch the app
 - [ ] Come up with suggested hotkeys on initial launch
@@ -7,12 +10,9 @@
 - [ ] Check if hotkeys work when entering password fields
 - [ ] Start at login
 - [ ] Add an icon
-- [ ] When there are 3+ windows, allow cycling through them all
 - [ ] Fix accessibility permission not working when moving bundle to application folder.
 - [ ] Does it need to be restarted after granting permissions? Any way to make it easy for the user? Maybe adding a screenshot?
-- [ ] Show message when launching app
 - [ ] Have option to show message when switching apps
-- [ ] Allow switching between multiple fullscreen and windowed apps
 - [ ] Make bundling happen in a separate folder. Update .gitignore to remove old bundling excludes if requried
 
 ## Done
