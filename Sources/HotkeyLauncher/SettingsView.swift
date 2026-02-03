@@ -2,30 +2,14 @@ import SwiftUI
 import AppKit
 
 struct SettingsView: View {
-    enum SheetMode: Identifiable {
-        case add
-        case addWithApp(String)
-        case edit(Hotkey)
-        
-        var id: String {
-            switch self {
-            case .add: return "add"
-            case .addWithApp(let b): return "add-\(b)"
-            case .edit(let h): return "edit-\(h.bundleId)"
-            }
-        }
-    }
-    
     @State private var hotkeys: [Hotkey] = []
     @State private var exceptions: [String] = []
     @State private var runningApps: [NSRunningApplication] = []
-    @State private var sheetMode: SheetMode?
+    @State private var recordingBundleId: String? = nil
+    @State private var tempKey = ""
+    @State private var tempModifiers: [String] = []
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     var onClose: (() -> Void)? = nil
-    
-    @State private var newAppBundleId = ""
-    @State private var newKey = ""
-    @State private var newModifiers: [String] = []
     
     struct AppItem: Identifiable {
         let bundleId: String
@@ -73,12 +57,28 @@ struct SettingsView: View {
                             
                             Spacer()
                             
-                            if let hotkey = item.hotkey {
+                            if recordingBundleId == item.bundleId {
+                                ShortcutNSViewRepresentable(key: $tempKey, modifiers: $tempModifiers, isFocused: .constant(true))
+                                    .frame(width: 150, height: 30)
+                                    .overlay(
+                                        Text("Recording... Press keys")
+                                            .font(.caption)
+                                            .foregroundColor(.accentColor)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color.accentColor.opacity(0.1))
+                                            .cornerRadius(4)
+                                            .allowsHitTesting(false)
+                                    )
+                            } else if let hotkey = item.hotkey, !hotkey.key.isEmpty {
                                 Text(hotkey.displayString)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
                                     .background(Color.secondary.opacity(0.1))
                                     .cornerRadius(4)
+                                    .onTapGesture {
+                                        startRecording(for: item.bundleId)
+                                    }
                                 
                                 Button(action: {
                                     deleteHotkey(hotkey)
@@ -88,9 +88,9 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 .padding(.leading, 8)
-                            } else if let app = item.runningApp {
+                            } else {
                                 Button(action: {
-                                    assignHotkey(for: app)
+                                    startRecording(for: item.bundleId)
                                 }) {
                                     Text("Assign Hotkey")
                                         .padding(.horizontal, 8)
@@ -99,14 +99,6 @@ struct SettingsView: View {
                                         .cornerRadius(4)
                                 }
                                 .buttonStyle(PlainButtonStyle())
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if let hotkey = item.hotkey {
-                                editHotkey(hotkey)
-                            } else if let app = item.runningApp {
-                                assignHotkey(for: app)
                             }
                         }
                         .padding(.vertical, 4)
@@ -150,7 +142,19 @@ struct SettingsView: View {
             
             HStack {
                 Button(action: {
-                    prepareForAdd()
+                    // This button now just opens the app picker, then the user can assign
+                    ApplicationManager.shared.pickApplication { bundleId in
+                        if let bundleId = bundleId {
+                            if !hotkeys.contains(where: { $0.bundleId == bundleId }) {
+                                // Add a placeholder hotkey to the list
+                                let placeholder = Hotkey(key: "", modifiers: [], bundleId: bundleId)
+                                hotkeys.append(placeholder)
+                                saveToConfig()
+                            }
+                            // Immediately start recording for the newly added app
+                            startRecording(for: bundleId)
+                        }
+                    }
                 }) {
                     Label("Add Hotkey", systemImage: "plus")
                 }
@@ -192,90 +196,20 @@ struct SettingsView: View {
         .onReceive(timer) { _ in
             updateRunningApps()
         }
-        .sheet(item: $sheetMode) { mode in
-            VStack(spacing: 20) {
-                Text(title(for: mode))
-                    .font(.title2)
-                    .bold()
-                
-                HStack {
-                    Text("Application:")
-                    Text(newAppBundleId.isEmpty ? "None selected" : ApplicationManager.shared.getAppName(bundleId: newAppBundleId))
-                        .fontWeight(.medium)
-                    
-                    Spacer()
-                    
-                    Button("Select App...") {
-                        ApplicationManager.shared.pickApplication { bundleId in
-                            if let bundleId = bundleId {
-                                newAppBundleId = bundleId
-                            }
-                        }
-                    }
-                }
-                
-                VStack(alignment: .leading) {
-                    Text("Shortcut:")
-                    ShortcutRecorder(key: $newKey, modifiers: $newModifiers)
-                        .frame(height: 120)
-                        .background(Color.secondary.opacity(0.05))
-                        .cornerRadius(8)
-                }
-                
-                HStack {
-                    Button("Cancel") {
-                        sheetMode = nil
-                    }
-                    .keyboardShortcut(.cancelAction)
-                    
-                    Spacer()
-                    
-                    Button(saveButtonTitle(for: mode)) {
-                        saveOrAddHotkey(original: hotkey(from: mode))
-                        sheetMode = nil
-                    }
-                    .disabled(newAppBundleId.isEmpty || newKey.isEmpty)
-                    .buttonStyle(BorderedProminentButtonStyle())
-                }
-            }
-            .padding(30)
-            .frame(width: 400)
-            .onAppear {
-                initializeForm(from: mode)
+        .onChange(of: tempKey) { newValue in
+            if !newValue.isEmpty, let bundleId = recordingBundleId {
+                saveOrAddHotkey(bundleId: bundleId, key: newValue, modifiers: tempModifiers)
+                recordingBundleId = nil
+                tempKey = ""
+                tempModifiers = []
             }
         }
     }
     
-    private func title(for mode: SheetMode) -> String {
-        if case .edit = mode { return "Edit Hotkey" }
-        return "Add New Hotkey"
-    }
-    
-    private func saveButtonTitle(for mode: SheetMode) -> String {
-        if case .edit = mode { return "Save" }
-        return "Add"
-    }
-    
-    private func hotkey(from mode: SheetMode) -> Hotkey? {
-        if case .edit(let h) = mode { return h }
-        return nil
-    }
-    
-    private func initializeForm(from mode: SheetMode) {
-        switch mode {
-        case .edit(let h):
-            newAppBundleId = h.bundleId
-            newKey = h.key
-            newModifiers = h.modifiers
-        case .addWithApp(let b):
-            newAppBundleId = b
-            newKey = ""
-            newModifiers = []
-        case .add:
-            newAppBundleId = ""
-            newKey = ""
-            newModifiers = []
-        }
+    private func startRecording(for bundleId: String) {
+        recordingBundleId = bundleId
+        tempKey = ""
+        tempModifiers = []
     }
     
     private func closeWindow() {
@@ -296,10 +230,6 @@ struct SettingsView: View {
         saveToConfig()
     }
     
-    private func prepareForAdd() {
-        sheetMode = .add
-    }
-    
     private func addException() {
         ApplicationManager.shared.pickApplication { bundleId in
             if let bundleId = bundleId {
@@ -311,25 +241,14 @@ struct SettingsView: View {
         }
     }
     
-    private func editHotkey(_ hotkey: Hotkey) {
-        sheetMode = .edit(hotkey)
-    }
-    
-    private func saveOrAddHotkey(original: Hotkey?) {
-        let newHotkey = Hotkey(key: newKey, modifiers: newModifiers, bundleId: newAppBundleId)
+    private func saveOrAddHotkey(bundleId: String, key: String, modifiers: [String]) {
+        if key.isEmpty { return }
+        let newHotkey = Hotkey(key: key, modifiers: modifiers, bundleId: bundleId)
         
-        if let original = original {
-            if let index = hotkeys.firstIndex(where: { $0.id == original.id }) {
-                hotkeys[index] = newHotkey
-            } else {
-                hotkeys.append(newHotkey)
-            }
+        if let index = hotkeys.firstIndex(where: { $0.bundleId == bundleId }) {
+            hotkeys[index] = newHotkey
         } else {
-            if let index = hotkeys.firstIndex(where: { $0.bundleId == newAppBundleId }) {
-                hotkeys[index] = newHotkey
-            } else {
-                hotkeys.append(newHotkey)
-            }
+            hotkeys.append(newHotkey)
         }
         
         saveToConfig()
@@ -348,12 +267,6 @@ struct SettingsView: View {
         runningApps = allRunning.filter { app in
             guard let bundleId = app.bundleIdentifier else { return false }
             return !existingBundleIds.contains(bundleId)
-        }
-    }
-    
-    private func assignHotkey(for app: NSRunningApplication) {
-        if let bundleId = app.bundleIdentifier {
-            sheetMode = .addWithApp(bundleId)
         }
     }
 }

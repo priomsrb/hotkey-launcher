@@ -1,7 +1,11 @@
 ## TODO
 
-- [ ] Instead of opening up a modal, allow assigning hotkeys right from the list
-- [ ] Activity monitor doesn't actually show the window. Maybe it needs to be activated (Added 'reopen' command to AppleScript)
+- [ ] Pressing escape when entering a hotkey should cancel the hotkey recording, but not close the window
+- [ ] Scroll to the currently recording item and highlight it when adding a new hotkey
+- [ ] When an app is active but has 0 windows, it should launch a new window when activated
+- [ ] When recording shortcuts, don't switch apps
+  - [ ] Show when there are conflicting hotkeys assigned
+- [ ] AudioRelay has a different name depending on whether a hotkey is assigned or not (And the app is open)
 - [ ] Strange bug: Open settings window. Then open another app. Press cmd+q on the app, it closes our settings window too.
 - [ ] Show how much time in ms it took to switch the app
 - [ ] Come up with suggested hotkeys on initial launch
@@ -35,3 +39,4 @@
 - [x] Show runnings apps so that hotkeys can be assigned
 - [x] Show running applications and assigned hotkey applications in the same combined list
 - [x] The list should be ordered alphabetically
+- [x] Instead of opening up a modal, allow assigning hotkeys right from the list (By clicking on the hotkey area)

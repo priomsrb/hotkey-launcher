@@ -105,7 +105,15 @@ struct ShortcutNSViewRepresentable: NSViewRepresentable {
         return view
     }
     
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if isFocused {
+            DispatchQueue.main.async {
+                if let window = nsView.window, window.firstResponder != nsView {
+                    window.makeFirstResponder(nsView)
+                }
+            }
+        }
+    }
 }
 
 class ShortcutNSView: NSView {
