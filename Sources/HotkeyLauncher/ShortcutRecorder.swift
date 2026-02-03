@@ -52,6 +52,8 @@ struct ShortcutNSViewRepresentable: NSViewRepresentable {
     @Binding var key: String
     @Binding var modifiers: [String]
     @Binding var isFocused: Bool
+    var onCancel: (() -> Void)? = nil
+    var onUnassign: (() -> Void)? = nil
     
     class Coordinator: NSObject {
         var parent: ShortcutNSViewRepresentable
@@ -97,6 +99,8 @@ struct ShortcutNSViewRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = ShortcutNSView()
         view.onKeyEvent = context.coordinator.handleKeyEvent
+        view.onCancel = onCancel
+        view.onUnassign = onUnassign
         view.onFocusChange = { focused in
             DispatchQueue.main.async {
                 self.isFocused = focused
@@ -118,6 +122,8 @@ struct ShortcutNSViewRepresentable: NSViewRepresentable {
 
 class ShortcutNSView: NSView {
     var onKeyEvent: ((NSEvent) -> Void)?
+    var onCancel: (() -> Void)?
+    var onUnassign: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
     
     override var acceptsFirstResponder: Bool { true }
@@ -131,7 +137,23 @@ class ShortcutNSView: NSView {
             return
         }
         
+        // Handle Escape (53) as cancel
+        if modifierFlags.isEmpty && event.keyCode == 53 {
+            onCancel?()
+            return
+        }
+        
+        // Handle Backspace (51) and Delete (117) as unassign
+        // Note: Forward Delete (117) often includes the .function flag (8388608), 
+        // so we check if the basic modifiers (cmd, opt, ctrl, shift) are empty.
+        let basicModifiers = modifierFlags.intersection([.command, .option, .control, .shift])
+        if basicModifiers.isEmpty && (event.keyCode == 51 || event.keyCode == 117) {
+            onUnassign?()
+            return
+        }
+        
         // If it's just Escape, let it pass through (for cancelling sheets/windows)
+        // Note: We already handled Escape as cancel above, but if onCancel is nil, we still might want it to pass
         if modifierFlags.isEmpty && event.keyCode == 53 {
             super.keyDown(with: event)
             return

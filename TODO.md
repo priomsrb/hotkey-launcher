@@ -1,6 +1,5 @@
 ## TODO
 
-- [ ] Pressing escape when entering a hotkey should cancel the hotkey recording, but not close the window
 - [ ] Scroll to the currently recording item and highlight it when adding a new hotkey
 - [ ] When an app is active but has 0 windows, it should launch a new window when activated
 - [ ] When recording shortcuts, don't switch apps
@@ -40,3 +39,4 @@
 - [x] Show running applications and assigned hotkey applications in the same combined list
 - [x] The list should be ordered alphabetically
 - [x] Instead of opening up a modal, allow assigning hotkeys right from the list (By clicking on the hotkey area)
+- [x] Pressing escape should cancel the hotkey recording, but pressing backspace or delete should unassign it. (All cases avoid closing the window)

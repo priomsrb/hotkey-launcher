@@ -58,8 +58,22 @@ struct SettingsView: View {
                             Spacer()
                             
                             if recordingBundleId == item.bundleId {
-                                ShortcutNSViewRepresentable(key: $tempKey, modifiers: $tempModifiers, isFocused: .constant(true))
-                                    .frame(width: 150, height: 30)
+                                ShortcutNSViewRepresentable(key: $tempKey, modifiers: $tempModifiers, isFocused: .constant(true), onCancel: {
+                                    recordingBundleId = nil
+                                    tempKey = ""
+                                    tempModifiers = []
+                                    
+                                    // If we were adding a new app and it doesn't have a hotkey yet, remove the placeholder
+                                    hotkeys.removeAll { $0.bundleId == item.bundleId && $0.key.isEmpty }
+                                }, onUnassign: {
+                                    if let hotkey = item.hotkey {
+                                        deleteHotkey(hotkey)
+                                    }
+                                    recordingBundleId = nil
+                                    tempKey = ""
+                                    tempModifiers = []
+                                })
+                                .frame(width: 150, height: 30)
                                     .overlay(
                                         Text("Recording... Press keys")
                                             .font(.caption)
@@ -181,7 +195,11 @@ struct SettingsView: View {
             
             // Hidden buttons for global shortcuts
             Group {
-                Button("") { closeWindow() }.keyboardShortcut(.cancelAction)
+                Button("") { 
+                    if recordingBundleId == nil {
+                        closeWindow() 
+                    }
+                }.keyboardShortcut(.cancelAction)
                 Button("") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q", modifiers: .command)
             }
             .opacity(0).frame(width: 0, height: 0)
