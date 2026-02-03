@@ -1,9 +1,6 @@
 ## TODO
 
-- [ ] Scroll to the currently recording item and highlight it when adding a new hotkey
 - [ ] When an app is active but has 0 windows, it should launch a new window when activated
-- [ ] When recording shortcuts, don't switch apps
-  - [ ] Show when there are conflicting hotkeys assigned
 - [ ] AudioRelay has a different name depending on whether a hotkey is assigned or not (And the app is open)
 - [ ] Strange bug: Open settings window. Then open another app. Press cmd+q on the app, it closes our settings window too.
 - [ ] Show how much time in ms it took to switch the app
@@ -40,3 +37,6 @@
 - [x] The list should be ordered alphabetically
 - [x] Instead of opening up a modal, allow assigning hotkeys right from the list (By clicking on the hotkey area)
 - [x] Pressing escape should cancel the hotkey recording, but pressing backspace or delete should unassign it. (All cases avoid closing the window)
+- [x] Scroll to the currently recording item and highlight it when adding a new application and recording the hotkey
+- [x] When recording shortcuts, don't switch apps
+  - [x] Show when there are conflicting hotkeys assigned

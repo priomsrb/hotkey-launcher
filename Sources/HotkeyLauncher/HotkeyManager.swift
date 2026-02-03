@@ -11,6 +11,9 @@ class HotkeyManager {
     private var exceptions: [String] = []
     private var hotkeyCallback: ((Hotkey) -> Void)?
     
+    /// Flag to indicate if we are currently recording a hotkey (to avoid switching apps)
+    var isRecording: Bool = false
+    
     private init() {}
     
     /// Register hotkeys and start listening for key events
@@ -116,6 +119,11 @@ class HotkeyManager {
         }
         
         guard type == .keyDown else {
+            return Unmanaged.passRetained(event)
+        }
+        
+        // If we are recording a hotkey, don't match or consume any registered hotkeys
+        if isRecording {
             return Unmanaged.passRetained(event)
         }
         
