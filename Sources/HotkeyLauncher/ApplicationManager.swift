@@ -40,11 +40,21 @@ class ApplicationManager {
         let pid = app.processIdentifier
         let appElement = AXUIElementCreateApplication(pid)
         
-        // First, try to raise the main/first window via Accessibility API
+        // Check window count via Accessibility API
         var windowsRef: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
+        let windows = windowsRef as? [AXUIElement] ?? []
         
-        if result == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty {
+        if windows.isEmpty {
+            print("[AppManager] No windows found for \(app.localizedName ?? "app"), launching to trigger reopen...")
+            if let bundleId = app.bundleIdentifier {
+                launchApp(bundleId: bundleId)
+                return
+            }
+        }
+        
+        // If we have windows, try to raise the main/first window
+        if !windows.isEmpty {
             print("[AppManager] Raising first window via AXUIElement")
             AXUIElementPerformAction(windows[0], kAXRaiseAction as CFString)
             AXUIElementSetAttributeValue(windows[0], kAXMainAttribute as CFString, kCFBooleanTrue)

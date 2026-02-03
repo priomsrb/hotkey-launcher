@@ -1,7 +1,5 @@
 ## TODO
 
-- [ ] When an app is active but has 0 windows, it should launch a new window when activated
-- [ ] AudioRelay has a different name depending on whether a hotkey is assigned or not (And the app is open)
 - [ ] Strange bug: Open settings window. Then open another app. Press cmd+q on the app, it closes our settings window too.
 - [ ] Show how much time in ms it took to switch the app
 - [ ] Come up with suggested hotkeys on initial launch
@@ -40,3 +38,5 @@
 - [x] Scroll to the currently recording item and highlight it when adding a new application and recording the hotkey
 - [x] When recording shortcuts, don't switch apps
   - [x] Show when there are conflicting hotkeys assigned
+- [x] When an app is active but has 0 windows, switching to it shows nothing. It should launch a new window when activated
+- [x] Won't fix: AudioRelay has a different name depending on whether a hotkey is assigned or not (And the app is open). Seems to be an issue with the app itself having a misleading localizedName
