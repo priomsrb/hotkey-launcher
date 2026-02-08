@@ -1,6 +1,44 @@
 import Cocoa
 import ApplicationServices
 
+// Private API to get CGWindowID from AXUIElement
+// This is needed to match CGWindowListCopyWindowInfo results with AXUIElements
+@_silgen_name("_AXUIElementGetWindow")
+func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
+
+// Private API to create an AXUIElement from a remote token (pid + element id)
+// This allows finding windows across all spaces
+@_silgen_name("_AXUIElementCreateWithRemoteToken")
+func _AXUIElementCreateWithRemoteToken(_ data: CFData) -> Unmanaged<AXUIElement>?
+
+typealias AXUIElementID = UInt64
+
+/// Simple timer to prevent long-running AX operations from blocking the UI
+class LightweightTimer {
+    private let startTime = Date()
+    func hasElapsed(milliseconds: Double) -> Bool {
+        return Date().timeIntervalSince(startTime) * 1000 > milliseconds
+    }
+}
+
+extension AXUIElement {
+    /// Support the .attributes([kAXSubroleAttribute]).subrole syntax
+    struct AttributesWrapper {
+        let element: AXUIElement
+        var subrole: String? {
+            var value: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &value) == .success {
+                return value as? String
+            }
+            return nil
+        }
+    }
+    
+    func attributes(_ names: [CFString]) -> AttributesWrapper {
+        return AttributesWrapper(element: self)
+    }
+}
+
 /// Manages application launching, switching, and window cycling
 class ApplicationManager {
     static let shared = ApplicationManager()
@@ -35,15 +73,57 @@ class ApplicationManager {
         }
     }
     
+    /// Get all windows for an app using brute-force (includes all spaces)
+    private func getWindowsForApp(_ app: NSRunningApplication) -> [AXUIElement] {
+        let pid = app.processIdentifier
+        
+        // Use brute-force discovery to find windows across all spaces
+        let axWindows = ApplicationManager.windowsByBruteForce(pid)
+        
+        // If brute-force found nothing, fall back to standard AX windows attribute
+        if axWindows.isEmpty {
+            let appElement = AXUIElementCreateApplication(pid)
+            var windowsRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+               let axWindowsAttr = windowsRef as? [AXUIElement] {
+                return axWindowsAttr
+            }
+        }
+        
+        return axWindows
+    }
+    
+    // Copied from https://github.com/lwouis/alt-tab-macos/blob/aeaf782feb92a19688d2161268de1f0c10fc009d/src/api-wrappers/AXUIElement.swift#L250
+    /// brute-force getting the windows of a process by iterating over AXUIElementID one by one
+    private static func windowsByBruteForce(_ pid: pid_t) -> [AXUIElement] {
+        // we use this to call _AXUIElementCreateWithRemoteToken; we reuse the object for performance
+        // tests showed that this remoteToken is 20 bytes: 4 + 4 + 4 + 8; the order of bytes matters
+        var remoteToken = Data(count: 20)
+        remoteToken.replaceSubrange(0..<4, with: withUnsafeBytes(of: pid) { Data($0) })
+        remoteToken.replaceSubrange(4..<8, with: withUnsafeBytes(of: Int32(0)) { Data($0) })
+        remoteToken.replaceSubrange(8..<12, with: withUnsafeBytes(of: Int32(0x636f636f)) { Data($0) })
+        var axWindows = [AXUIElement]()
+        // we iterate to 1000 as a tradeoff between performance, and missing windows of long-lived processes
+        // different apps can take widely different time for this to complete. We stop iterating if we time out
+        let timer = LightweightTimer()
+        for axUiElementId: AXUIElementID in 0..<1000 {
+            remoteToken.replaceSubrange(12..<20, with: withUnsafeBytes(of: axUiElementId) { Data($0) })
+            if let axUiElement = _AXUIElementCreateWithRemoteToken(remoteToken as CFData)?.takeRetainedValue(),
+               let subrole = axUiElement.attributes([kAXSubroleAttribute as CFString]).subrole,
+               [kAXStandardWindowSubrole as String, kAXDialogSubrole as String].contains(subrole) {
+                axWindows.append(axUiElement)
+            }
+            if timer.hasElapsed(milliseconds: 100) {
+                return axWindows
+            }
+        }
+        return axWindows
+    }
+    
     /// Activate an app using multiple methods for reliability
     private func activateApp(_ app: NSRunningApplication) {
-        let pid = app.processIdentifier
-        let appElement = AXUIElementCreateApplication(pid)
-        
-        // Check window count via Accessibility API
-        var windowsRef: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
-        let windows = windowsRef as? [AXUIElement] ?? []
+        // Check window count using brute-force (includes fullscreen/all spaces)
+        let windows = getWindowsForApp(app)
         
         if windows.isEmpty {
             print("[AppManager] No windows found for \(app.localizedName ?? "app"), launching to trigger reopen...")
@@ -123,21 +203,17 @@ class ApplicationManager {
         }
     }
     
-    /// Cycle to the next window of the given application using Accessibility API
+    /// Cycle to the next window of the given application using brute-force discovery
     private func cycleWindows(for app: NSRunningApplication) {
         let pid = app.processIdentifier
         let appElement = AXUIElementCreateApplication(pid)
         
-        // Get all windows
-        var windowsRef: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
+        // Get all windows across all spaces
+        let windows = getWindowsForApp(app)
         
-        let windowCount = (windowsRef as? [AXUIElement])?.count ?? 0
-        guard result == .success,
-              let windows = windowsRef as? [AXUIElement],
-              windows.count > 1 else {
+        guard windows.count > 1 else {
             // No windows or only one window - just ensure app is activated
-            print("[AppManager] Only \(windowCount) window(s), just activating app")
+            print("[AppManager] Only \(windows.count) window(s), just activating app")
             activateApp(app)
             return
         }
@@ -162,6 +238,11 @@ class ApplicationManager {
                 break
             }
         }
+        
+        // If we didn't find the focused window in our list, it might be because
+        // it's a window from another space that's focused.
+        // We still have its element, so let's try to match by comparing element IDs if possible
+        // but CFEqual should usually handle this.
         
         raiseWindow(windows[nextWindowIndex])
     }
