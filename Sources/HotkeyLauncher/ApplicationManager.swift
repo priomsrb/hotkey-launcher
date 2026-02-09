@@ -43,6 +43,12 @@ extension AXUIElement {
 class ApplicationManager {
     static let shared = ApplicationManager()
     
+    // State for window cycling to make it reliable during rapid presses
+    private var lastCycleBundleId: String?
+    private var lastCycleTime: Date?
+    private var lastCycleWindows: [AXUIElement] = []
+    private var lastCycleIndex: Int = 0
+    
     private init() {}
     
     /// Activate or launch the application with the given bundle ID
@@ -57,13 +63,19 @@ class ApplicationManager {
         if let runningApp = workspace.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) {
             // App is running
             print("[AppManager] App is running (pid: \(runningApp.processIdentifier))")
-            if runningApp.isActive {
-                print("[AppManager] App is active, cycling windows...")
-                // Already focused - cycle to next window
+            
+            let now = Date()
+            let isRapidCycle = lastCycleBundleId == bundleId && 
+                              lastCycleTime != nil && 
+                              now.timeIntervalSince(lastCycleTime!) < 1.0
+            
+            // If the app is already active OR we are in a rapid cycling session, cycle windows
+            if runningApp.isActive || isRapidCycle {
+                print("[AppManager] App is focused or in rapid cycle, cycling windows...")
                 cycleWindows(for: runningApp)
             } else {
-                print("[AppManager] App is not active, activating...")
-                // Not focused - bring to front
+                print("[AppManager] App is not focused, activating...")
+                // Not focused - bring to front and initialize session
                 activateApp(runningApp)
             }
         } else {
@@ -73,24 +85,90 @@ class ApplicationManager {
         }
     }
     
-    /// Get all windows for an app using brute-force (includes all spaces)
+    /// Get all windows for an app using brute-force (includes all spaces), sorted by focus and z-order
     private func getWindowsForApp(_ app: NSRunningApplication) -> [AXUIElement] {
         let pid = app.processIdentifier
+        let appElement = AXUIElementCreateApplication(pid)
         
-        // Use brute-force discovery to find windows across all spaces
+        // 1. Identify what the OS thinks is currently focused - this is our #1 priority
+        var focusedWindowElement: AXUIElement?
+        var focusedValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedValue) == .success {
+            focusedWindowElement = (focusedValue as! AXUIElement)
+        }
+        
+        // 2. Brute-force find all windows across all spaces
         let axWindows = ApplicationManager.windowsByBruteForce(pid)
         
-        // If brute-force found nothing, fall back to standard AX windows attribute
+        // Fallback to standard AX if brute-force failed completely
+        var rawWindows: [AXUIElement]
         if axWindows.isEmpty {
-            let appElement = AXUIElementCreateApplication(pid)
             var windowsRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
                let axWindowsAttr = windowsRef as? [AXUIElement] {
-                return axWindowsAttr
+                rawWindows = axWindowsAttr
+            } else {
+                rawWindows = []
+            }
+        } else {
+            rawWindows = axWindows
+        }
+        
+        // 3. Match by CGWindowID for accurate sorting and de-duplication
+        var uniqueWindows: [CGWindowID: AXUIElement] = [:]
+        var focusedID: CGWindowID = 0
+        if let focused = focusedWindowElement {
+            _ = _AXUIElementGetWindow(focused, &focusedID)
+        }
+        
+        for axWindow in rawWindows {
+            var windowID: CGWindowID = 0
+            _ = _AXUIElementGetWindow(axWindow, &windowID)
+            if windowID != 0 && uniqueWindows[windowID] == nil {
+                uniqueWindows[windowID] = axWindow
             }
         }
         
-        return axWindows
+        // If focused window wasn't in list, add it
+        if focusedID != 0 && uniqueWindows[focusedID] == nil, let focused = focusedWindowElement {
+            uniqueWindows[focusedID] = focused
+        }
+        
+        let deduplicated = Array(uniqueWindows.values)
+        if deduplicated.isEmpty { return rawWindows }
+        
+        // 4. Get global z-order snapshot
+        let options: CGWindowListOption = [.optionAll]
+        let windowRankMap: [CGWindowID: Int]
+        if let windowInfoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
+            var map: [CGWindowID: Int] = [:]
+            for (index, info) in windowInfoList.enumerated() {
+                if let windowID = info[kCGWindowNumber as String] as? CGWindowID {
+                    map[windowID] = index
+                }
+            }
+            windowRankMap = map
+        } else {
+            windowRankMap = [:]
+        }
+        
+        // 5. Final prioritized sort: Focus > Z-Order > ID
+        return deduplicated.sorted { (ax1, ax2) -> Bool in
+            var id1: CGWindowID = 0
+            var id2: CGWindowID = 0
+            _ = _AXUIElementGetWindow(ax1, &id1)
+            _ = _AXUIElementGetWindow(ax2, &id2)
+            
+            if id1 == focusedID && id1 != 0 { return true }
+            if id2 == focusedID && id2 != 0 { return false }
+            
+            let rank1 = windowRankMap[id1] ?? Int.max
+            let rank2 = windowRankMap[id2] ?? Int.max
+            if rank1 != rank2 {
+                return rank1 < rank2
+            }
+            return id1 < id2
+        }
     }
     
     // Copied from https://github.com/lwouis/alt-tab-macos/blob/aeaf782feb92a19688d2161268de1f0c10fc009d/src/api-wrappers/AXUIElement.swift#L250
@@ -103,17 +181,17 @@ class ApplicationManager {
         remoteToken.replaceSubrange(4..<8, with: withUnsafeBytes(of: Int32(0)) { Data($0) })
         remoteToken.replaceSubrange(8..<12, with: withUnsafeBytes(of: Int32(0x636f636f)) { Data($0) })
         var axWindows = [AXUIElement]()
-        // we iterate to 10,000 as a tradeoff between performance, and missing windows of long-lived processes
+        // we iterate to 2000 as a tradeoff between performance, and missing windows of long-lived processes
         // different apps can take widely different time for this to complete. We stop iterating if we time out
         let timer = LightweightTimer()
-        for axUiElementId: AXUIElementID in 0..<10000 {
+        for axUiElementId: AXUIElementID in 0..<2000 {
             remoteToken.replaceSubrange(12..<20, with: withUnsafeBytes(of: axUiElementId) { Data($0) })
             if let axUiElement = _AXUIElementCreateWithRemoteToken(remoteToken as CFData)?.takeRetainedValue(),
                let subrole = axUiElement.attributes([kAXSubroleAttribute as CFString]).subrole,
-               [kAXStandardWindowSubrole as String, kAXDialogSubrole as String].contains(subrole) {
+               [kAXStandardWindowSubrole as String, kAXDialogSubrole as String, kAXFloatingWindowSubrole as String].contains(subrole) {
                 axWindows.append(axUiElement)
             }
-            if timer.hasElapsed(milliseconds: 100) {
+            if timer.hasElapsed(milliseconds: 250) {
                 return axWindows
             }
         }
@@ -135,9 +213,14 @@ class ApplicationManager {
         
         // If we have windows, try to raise the main/first window
         if !windows.isEmpty {
-            print("[AppManager] Raising first window via AXUIElement")
-            AXUIElementPerformAction(windows[0], kAXRaiseAction as CFString)
-            AXUIElementSetAttributeValue(windows[0], kAXMainAttribute as CFString, kCFBooleanTrue)
+            print("[AppManager] Raising first window (z-order 0) and initializing session")
+            raiseWindow(windows[0])
+            
+            // Initialize session state even during activation to make the next rapid press cycle correctly
+            lastCycleBundleId = app.bundleIdentifier
+            lastCycleTime = Date()
+            lastCycleWindows = windows
+            lastCycleIndex = 0
         }
         
         // Try NSRunningApplication.activate first
@@ -203,48 +286,82 @@ class ApplicationManager {
         }
     }
     
-    /// Cycle to the next window of the given application using brute-force discovery
+    /// Cycle to the next window of the given application
     private func cycleWindows(for app: NSRunningApplication) {
-        let pid = app.processIdentifier
-        let appElement = AXUIElementCreateApplication(pid)
+        let bundleId = app.bundleIdentifier ?? ""
+        let now = Date()
         
-        // Get all windows across all spaces
+        // If we are within 1 second of the last cycle for the same app, continue the cycle
+        // using the same window list to ensure we visit every window exactly once in a loop.
+        // Rapid OS z-order changes can otherwise cause us to toggle between 2 windows.
+        if let lastId = lastCycleBundleId, lastId == bundleId,
+           let lastTime = lastCycleTime, now.timeIntervalSince(lastTime) < 1.0,
+           !lastCycleWindows.isEmpty {
+            
+            lastCycleIndex = (lastCycleIndex + 1) % lastCycleWindows.count
+            lastCycleTime = now
+            print("[AppManager] Continuing cycle session for \(bundleId), index: \(lastCycleIndex)/\(lastCycleWindows.count)")
+            raiseWindow(lastCycleWindows[lastCycleIndex])
+            return
+        }
+        
+        // Start a new cycle session or refresh if enough time has passed
         let windows = getWindowsForApp(app)
         
         guard windows.count > 1 else {
             // No windows or only one window - just ensure app is activated
             print("[AppManager] Only \(windows.count) window(s), just activating app")
             activateApp(app)
+            // Clear session state
+            lastCycleBundleId = nil
             return
         }
         
-        // Get the frontmost (focused) window
+        // Find the index of the currently focused window to start the cycle from there
+        let pid = app.processIdentifier
+        let appElement = AXUIElementCreateApplication(pid)
+        let startIndex = findFocusedIndex(in: windows, appElement: appElement)
+        
+        // Initialize session state
+        lastCycleBundleId = bundleId
+        lastCycleTime = now
+        lastCycleWindows = windows
+        // Move to the window after the currently focused one
+        lastCycleIndex = (startIndex + 1) % windows.count
+        
+        print("[AppManager] Starting new cycle session for \(bundleId), index \(lastCycleIndex)/\(windows.count)")
+        raiseWindow(lastCycleWindows[lastCycleIndex])
+    }
+    
+    /// Helper to find the index of a focuses window element in a list, with CGWindowID fallback for reliability
+    private func findFocusedIndex(in windows: [AXUIElement], appElement: AXUIElement) -> Int {
         var focusedWindowRef: CFTypeRef?
         let focusedResult = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindowRef)
         
-        guard focusedResult == .success, let focusedWindow = focusedWindowRef else {
-            // Can't get focused window, just raise the second window
-            raiseWindow(windows[1])
-            return
-        }
-        
-        // Find the index of the focused window and cycle to the next one
+        guard focusedResult == .success, let focusedWindow = focusedWindowRef else { return 0 }
         let focusedElement = focusedWindow as! AXUIElement
-        var nextWindowIndex = 0
         
+        // 1. Try direct comparison
         for (index, window) in windows.enumerated() {
             if CFEqual(window, focusedElement) {
-                nextWindowIndex = (index + 1) % windows.count
-                break
+                return index
             }
         }
         
-        // If we didn't find the focused window in our list, it might be because
-        // it's a window from another space that's focused.
-        // We still have its element, so let's try to match by comparing element IDs if possible
-        // but CFEqual should usually handle this.
+        // 2. Try CGWindowID fallback (more robust for remote elements)
+        var focusedID: CGWindowID = 0
+        _ = _AXUIElementGetWindow(focusedElement, &focusedID)
+        if focusedID != 0 {
+            for (index, window) in windows.enumerated() {
+                var windowID: CGWindowID = 0
+                _ = _AXUIElementGetWindow(window, &windowID)
+                if windowID == focusedID {
+                    return index
+                }
+            }
+        }
         
-        raiseWindow(windows[nextWindowIndex])
+        return 0
     }
     
     /// Raise a window to the front
@@ -289,7 +406,7 @@ class ApplicationManager {
                 } else {
                     // Try to get bundle ID via workspace if Bundle(url:) fails (e.g. for aliases)
                     let workspace = NSWorkspace.shared
-                    if let bundleId = workspace.frontmostApplication?.bundleIdentifier {
+                    if workspace.frontmostApplication?.bundleIdentifier != nil {
                          // This is not ideal, but aliases are tricky. 
                          // For now, assume it's a direct app path.
                     }

@@ -12,9 +12,12 @@
 - [ ] Does it need to be restarted after granting permissions? Any way to make it easy for the user? Maybe adding a screenshot?
 - [ ] Have option to show message when switching apps
 - [ ] Make bundling happen in a separate folder. Update .gitignore to remove old bundling excludes if requried
+- [ ] Find a more reliable method to find all windows in all spaces (including full screen) in a non-brute force way
 
 ## Done
 
+- [x] Fix issue where the first window of an app is focused instead of the last focused window (Solved by sorting by z-order)
+- [x] Fix unreliable window cycling when the hotkey is pressed rapidly (Solved by implementing cycling sessions)
 - [x] Switch desktops to focus/activate the app if a fullscreen app is covering it
 - [x] It sometimes still becomes unable to activate apps. Figure out why
 - [x] Figure out why ctrl+escape doesn't work
