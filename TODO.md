@@ -1,7 +1,5 @@
 ## TODO
 
-- [ ] Allow switching between multiple fullscreen and windowed apps
-- [ ] When there are 3+ windows, allow cycling through them all
 - [ ] Make it possible to use the tab key to navigate the UI. Should make it easy to set all the hotkeys using just the keyboard.
 - [ ] Strange bug: Open settings window. Then open another app. Press cmd+q on the app, it closes our settings window too.
 - [ ] Show how much time in ms it took to switch the app
@@ -40,3 +38,6 @@
   - [x] Show when there are conflicting hotkeys assigned
 - [x] When an app is active but has 0 windows, switching to it shows nothing. It should launch a new window when activated
 - [x] Won't fix: AudioRelay has a different name depending on whether a hotkey is assigned or not (And the app is open). Seems to be an issue with the app itself having a misleading localizedName
+- [x] Allow switching between multiple fullscreen and windowed apps
+- [x] When there are 3+ windows, allow cycling through them all
+- [x] Fix not being able to switch between helim windows

@@ -103,10 +103,10 @@ class ApplicationManager {
         remoteToken.replaceSubrange(4..<8, with: withUnsafeBytes(of: Int32(0)) { Data($0) })
         remoteToken.replaceSubrange(8..<12, with: withUnsafeBytes(of: Int32(0x636f636f)) { Data($0) })
         var axWindows = [AXUIElement]()
-        // we iterate to 1000 as a tradeoff between performance, and missing windows of long-lived processes
+        // we iterate to 10,000 as a tradeoff between performance, and missing windows of long-lived processes
         // different apps can take widely different time for this to complete. We stop iterating if we time out
         let timer = LightweightTimer()
-        for axUiElementId: AXUIElementID in 0..<1000 {
+        for axUiElementId: AXUIElementID in 0..<10000 {
             remoteToken.replaceSubrange(12..<20, with: withUnsafeBytes(of: axUiElementId) { Data($0) })
             if let axUiElement = _AXUIElementCreateWithRemoteToken(remoteToken as CFData)?.takeRetainedValue(),
                let subrole = axUiElement.attributes([kAXSubroleAttribute as CFString]).subrole,
