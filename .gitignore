@@ -5,3 +5,5 @@ build
 # Bundling related
 Info.plist
 HotkeyLauncher.app
+dist/
+assets/AppIcon.iconset/

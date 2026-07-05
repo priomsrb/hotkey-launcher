@@ -10,6 +10,7 @@ class HotkeyManager {
     private var hotkeys: [Hotkey] = []
     private var exceptions: [String] = []
     private var hotkeyCallback: ((Hotkey) -> Void)?
+    private var permissionTimer: Timer?
     
     /// Flag to indicate if we are currently recording a hotkey (to avoid switching apps)
     var isRecording: Bool = false
@@ -26,15 +27,32 @@ class HotkeyManager {
         self.hotkeyCallback = callback
         
         guard checkAccessibilityPermissions() else {
-            print("Accessibility permissions not granted")
+            print("Accessibility permissions not granted — waiting for approval...")
+            waitForAccessibilityApproval()
             return
         }
-        
+
         setupEventTap()
+    }
+
+    /// Poll until the user grants Accessibility permission, then start the event tap.
+    /// Without this, a fresh install would need a manual relaunch after approval.
+    private func waitForAccessibilityApproval() {
+        permissionTimer?.invalidate()
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+            guard AXIsProcessTrusted() else { return }
+            timer.invalidate()
+            self?.permissionTimer = nil
+            print("Accessibility permission granted — starting event tap")
+            self?.setupEventTap()
+        }
     }
     
     /// Stop listening for hotkeys
     func stop() {
+        permissionTimer?.invalidate()
+        permissionTimer = nil
+
         if let runLoopSource = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
             self.runLoopSource = nil

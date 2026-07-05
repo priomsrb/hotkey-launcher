@@ -9,8 +9,14 @@ executable target, no dependencies, macOS 12+.
 ```bash
 swift build                      # debug build
 .build/debug/HotkeyLauncher      # run (menu bar only, no dock icon)
-./scripts/bundle.sh              # release build + HotkeyLauncher.app bundle
+./scripts/bundle.sh              # release build + HotkeyLauncher.app bundle (unsigned)
+./scripts/release.sh             # bundle + codesign + notarize + dist/ dmg & zip
+swift scripts/make-icon.swift    # regenerate assets/AppIcon.icns
 ```
+
+`release.sh` needs a Developer ID Application certificate and a `notary`
+notarytool keychain profile (see README); without them it ad-hoc signs and
+skips notarization.
 
 There are no automated tests. Verification is manual: it requires real hotkey presses,
 multiple app windows/spaces, and Accessibility permission. To safely experiment with
