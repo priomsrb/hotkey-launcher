@@ -12,9 +12,9 @@
 - [ ] Does it need to be restarted after granting permissions? Any way to make it easy for the user? Maybe adding a screenshot?
 - [ ] Have option to show message when switching apps
 - [ ] Make bundling happen in a separate folder. Update .gitignore to remove old bundling excludes if requried
-- [ ] Find a more reliable method to find all windows in all spaces (including full screen) in a non-brute force way
-
 ## Done
+
+- [x] Find a more reliable method to find all windows in all spaces (including full screen) in a non-brute force way (Solved by asking the window server via private SkyLight APIs for the exact window IDs on every space, then brute-forcing only the specific missing IDs)
 
 - [x] Fix issue where the first window of an app is focused instead of the last focused window (Solved by sorting by z-order)
 - [x] Fix unreliable window cycling when the hotkey is pressed rapidly (Solved by implementing cycling sessions)

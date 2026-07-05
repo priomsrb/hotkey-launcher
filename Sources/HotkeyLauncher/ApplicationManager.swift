@@ -13,6 +13,21 @@ func _AXUIElementCreateWithRemoteToken(_ data: CFData) -> Unmanaged<AXUIElement>
 
 typealias AXUIElementID = UInt64
 
+// Private SkyLight APIs to enumerate spaces and the windows on them.
+// CGWindowListCopyWindowInfo only sees the current space; these see every
+// space, including fullscreen ones. Same technique as alt-tab-macos.
+typealias CGSConnectionID = UInt32
+typealias CGSSpaceID = UInt64
+
+@_silgen_name("CGSMainConnectionID")
+func CGSMainConnectionID() -> CGSConnectionID
+
+@_silgen_name("CGSCopyManagedDisplaySpaces")
+func CGSCopyManagedDisplaySpaces(_ cid: CGSConnectionID) -> CFArray
+
+@_silgen_name("CGSCopyWindowsWithOptionsAndTags")
+func CGSCopyWindowsWithOptionsAndTags(_ cid: CGSConnectionID, _ owner: Int, _ spaces: NSArray, _ options: Int, _ setTags: inout Int, _ clearTags: inout Int) -> NSArray
+
 /// Simple timer to prevent long-running AX operations from blocking the UI
 class LightweightTimer {
     private let startTime = Date()
@@ -76,12 +91,12 @@ class ApplicationManager {
 
     /// Get all windows for an app, sorted focused-first then by z-order.
     ///
-    /// Two sources are merged because neither is complete on its own:
-    /// - The standard kAXWindows list is reliable but misses windows on other
-    ///   spaces and fullscreen windows.
-    /// - Brute-forced remote elements cover all spaces, but can miss windows
-    ///   whose element ID falls outside the scan range on busy processes
-    ///   (this is what intermittently broke Chrome window cycling).
+    /// The window server (via private SkyLight APIs) tells us exactly which
+    /// window IDs the app owns across every space, including fullscreen ones.
+    /// The standard kAXWindows list covers the current space reliably; any
+    /// window it misses (other spaces, fullscreen) is then brute-forced by
+    /// matching those specific IDs, so the scan can stop as soon as every
+    /// window is accounted for and doesn't depend on subrole quirks.
     private func getWindowsForApp(_ app: NSRunningApplication) -> [AXUIElement] {
         let pid = app.processIdentifier
         let appElement = AXUIElementCreateApplication(pid)
@@ -106,27 +121,45 @@ class ApplicationManager {
             standardWindows = filteredStandard
         }
 
-        let bruteForcedWindows = ApplicationManager.windowsByBruteForce(pid)
-
-        // Merge and de-duplicate by CGWindowID. Standard elements are listed
-        // first so they win the dedup - they come from the app's own window list.
-        var candidates = standardWindows + bruteForcedWindows
-        if let focused = focusedWindow {
-            candidates.append(focused)
-        }
+        // Ground truth: every window the window server attributes to this app
+        let expectedIDs = ApplicationManager.windowServerWindowIDs(pid: pid)
 
         var seenIDs = Set<CGWindowID>()
         var merged: [(id: CGWindowID, element: AXUIElement)] = []
-        for window in candidates {
-            var windowID: CGWindowID = 0
-            _ = _AXUIElementGetWindow(window, &windowID)
-            guard windowID != 0, seenIDs.insert(windowID).inserted else { continue }
-            merged.append((windowID, window))
+        func addUnique(_ windows: [AXUIElement]) {
+            for window in windows {
+                var windowID: CGWindowID = 0
+                _ = _AXUIElementGetWindow(window, &windowID)
+                guard windowID != 0, seenIDs.insert(windowID).inserted else { continue }
+                merged.append((windowID, window))
+            }
         }
 
-        // If no window had a resolvable ID, fall back to the best raw list
+        addUnique(standardWindows)
+        if let focused = focusedWindow {
+            addUnique([focused])
+        }
+
+        if expectedIDs.isEmpty {
+            // Window server enumeration unavailable - fall back to a blind scan
+            addUnique(ApplicationManager.windowsByBruteForce(pid))
+        } else {
+            // Brute-force only the windows the AX list missed (other spaces,
+            // fullscreen). Matching by ID means the scan stops the moment all
+            // of them are found.
+            let missingIDs = expectedIDs.subtracting(seenIDs)
+            if !missingIDs.isEmpty {
+                addUnique(ApplicationManager.windowsByBruteForce(pid, lookingFor: missingIDs))
+                let stillMissing = expectedIDs.subtracting(seenIDs)
+                if !stillMissing.isEmpty {
+                    print("[AppManager] Warning: \(stillMissing.count) window(s) exist but weren't reachable via AX: \(stillMissing)")
+                }
+            }
+        }
+
+        // If no window had a resolvable ID, fall back to the raw standard list
         guard !merged.isEmpty else {
-            return standardWindows.isEmpty ? bruteForcedWindows : standardWindows
+            return standardWindows
         }
 
         var focusedID: CGWindowID = 0
@@ -144,6 +177,55 @@ class ApplicationManager {
             if rankA != rankB { return rankA < rankB }
             return a.id < b.id
         }.map { $0.element }
+    }
+
+    /// All windows the window server attributes to `pid` on any space
+    /// (including fullscreen spaces), at the normal window layer. This is the
+    /// ground truth for whether AX-based discovery has missed a window.
+    private static func windowServerWindowIDs(pid: pid_t) -> Set<CGWindowID> {
+        let connection = CGSMainConnectionID()
+        guard let displaySpaces = CGSCopyManagedDisplaySpaces(connection) as? [[String: Any]] else { return [] }
+
+        var spaceIDs: [CGSSpaceID] = []
+        for display in displaySpaces {
+            for space in (display["Spaces"] as? [[String: Any]]) ?? [] {
+                if let spaceID = space["id64"] as? CGSSpaceID {
+                    spaceIDs.append(spaceID)
+                }
+            }
+        }
+        guard !spaceIDs.isEmpty else { return [] }
+
+        var setTags = 0
+        var clearTags = 0
+        // 0x7 = include invisible and minimized windows
+        let rawIDs = CGSCopyWindowsWithOptionsAndTags(connection, 0, spaceIDs as NSArray, 0x7, &setTags, &clearTags)
+        let windowIDs: [CGWindowID] = (rawIDs as? [NSNumber])?.map { $0.uint32Value } ?? []
+        guard !windowIDs.isEmpty else { return [] }
+
+        // Resolve owner pid, layer, etc. for each ID (works across spaces,
+        // unlike CGWindowListCopyWindowInfo). Note: this API requires the IDs
+        // stored as raw values in the CFArray, not boxed in NSNumbers.
+        var pointers: [UnsafeRawPointer?] = windowIDs.map { UnsafeRawPointer(bitPattern: UInt($0)) }
+        let cfIDs = CFArrayCreate(kCFAllocatorDefault, &pointers, pointers.count, nil)
+        guard let descriptions = CGWindowListCreateDescriptionFromArray(cfIDs) as? [[String: Any]] else { return [] }
+
+        // Keep only windows that plausibly have an AX representation: normal
+        // layer, visible alpha, and big enough to not be a tooltip/overlay.
+        // Anything else would count as permanently "missing" and trigger
+        // pointless brute-force scans on every hotkey press.
+        var result = Set<CGWindowID>()
+        for info in descriptions {
+            guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t, ownerPID == pid,
+                  let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                  let alpha = info[kCGWindowAlpha as String] as? Double, alpha > 0.1,
+                  let bounds = info[kCGWindowBounds as String] as? [String: Any],
+                  let width = bounds["Width"] as? Double, width >= 100,
+                  let height = bounds["Height"] as? Double, height >= 100,
+                  let windowID = info[kCGWindowNumber as String] as? CGWindowID else { continue }
+            result.insert(windowID)
+        }
+        return result
     }
 
     /// Global front-to-back ranking of every window the window server knows about
@@ -173,9 +255,14 @@ class ApplicationManager {
         return cycleableSubroles.contains(subrole)
     }
 
-    // Copied from https://github.com/lwouis/alt-tab-macos/blob/aeaf782feb92a19688d2161268de1f0c10fc009d/src/api-wrappers/AXUIElement.swift#L250
-    /// brute-force getting the windows of a process by iterating over AXUIElementID one by one
-    private static func windowsByBruteForce(_ pid: pid_t) -> [AXUIElement] {
+    // Technique from https://github.com/lwouis/alt-tab-macos/blob/aeaf782feb92a19688d2161268de1f0c10fc009d/src/api-wrappers/AXUIElement.swift#L250
+    /// Brute-force the AX elements of a process by iterating element IDs one
+    /// by one. When `lookingFor` is given, elements are matched against those
+    /// CGWindowIDs and the scan stops as soon as all of them are found - this
+    /// is cheaper per element (no subrole query) so it can scan much deeper,
+    /// which matters for busy processes like Chrome that burn through element
+    /// IDs. Without it, windows are detected by subrole (blind fallback).
+    private static func windowsByBruteForce(_ pid: pid_t, lookingFor targetIDs: Set<CGWindowID> = []) -> [AXUIElement] {
         // we use this to call _AXUIElementCreateWithRemoteToken; we reuse the object for performance
         // tests showed that this remoteToken is 20 bytes: 4 + 4 + 4 + 8; the order of bytes matters
         var remoteToken = Data(count: 20)
@@ -183,16 +270,28 @@ class ApplicationManager {
         remoteToken.replaceSubrange(4..<8, with: withUnsafeBytes(of: Int32(0)) { Data($0) })
         remoteToken.replaceSubrange(8..<12, with: withUnsafeBytes(of: Int32(0x636f636f)) { Data($0) })
         var axWindows = [AXUIElement]()
-        // we iterate to 2000 as a tradeoff between performance, and missing windows of long-lived processes
-        // different apps can take widely different time for this to complete. We stop iterating if we time out
+        var remaining = targetIDs
+        let targeted = !targetIDs.isEmpty
+        let maxElementID: AXUIElementID = targeted ? 30_000 : 2000
+        let budgetMs: Double = targeted ? 500 : 250
         let timer = LightweightTimer()
-        for axUiElementId: AXUIElementID in 0..<2000 {
+        for axUiElementId: AXUIElementID in 0..<maxElementID {
             remoteToken.replaceSubrange(12..<20, with: withUnsafeBytes(of: axUiElementId) { Data($0) })
-            if let axUiElement = _AXUIElementCreateWithRemoteToken(remoteToken as CFData)?.takeRetainedValue(),
-               isCycleableWindow(axUiElement) {
-                axWindows.append(axUiElement)
+            if let axUiElement = _AXUIElementCreateWithRemoteToken(remoteToken as CFData)?.takeRetainedValue() {
+                if targeted {
+                    var windowID: CGWindowID = 0
+                    _ = _AXUIElementGetWindow(axUiElement, &windowID)
+                    if remaining.remove(windowID) != nil {
+                        axWindows.append(axUiElement)
+                        if remaining.isEmpty {
+                            return axWindows
+                        }
+                    }
+                } else if isCycleableWindow(axUiElement) {
+                    axWindows.append(axUiElement)
+                }
             }
-            if timer.hasElapsed(milliseconds: 250) {
+            if timer.hasElapsed(milliseconds: budgetMs) {
                 return axWindows
             }
         }
