@@ -480,9 +480,20 @@ class ApplicationManager {
 
     /// Launch an application by bundle ID
     private func launchApp(bundleId: String) {
+        let appName = getAppName(bundleId: bundleId)
         guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
             print("[AppManager] Could not find application with bundle ID: \(bundleId)")
+            LaunchHUD.shared.showLaunchFailed(appName: appName, icon: nil)
             return
+        }
+
+        let icon = NSWorkspace.shared.icon(forFile: appURL.path)
+
+        // Only a true cold launch gets the HUD; calls that merely re-trigger a
+        // running app's reopen behaviour finish too fast to warrant one
+        let isRunning = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == bundleId }
+        if !isRunning {
+            LaunchHUD.shared.showLaunching(bundleId: bundleId, appName: appName, icon: icon)
         }
 
         print("[AppManager] Launching app at: \(appURL.path)")
@@ -492,6 +503,7 @@ class ApplicationManager {
         NSWorkspace.shared.openApplication(at: appURL, configuration: config) { app, error in
             if let error = error {
                 print("[AppManager] Error launching: \(error)")
+                LaunchHUD.shared.showLaunchFailed(appName: appName, icon: icon)
             } else {
                 print("[AppManager] Launch successful")
             }

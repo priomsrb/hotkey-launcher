@@ -27,6 +27,7 @@ Sources/HotkeyLauncher/
 ├── AppDelegate.swift       # Menu bar item, settings window, wires components together
 ├── HotkeyManager.swift     # CGEvent tap for global keyboard interception
 ├── ApplicationManager.swift # App activation + window discovery/cycling (the tricky part)
+├── LaunchHUD.swift         # Floating "Launching <App>…" bezel shown during cold launches
 ├── ConfigManager.swift     # JSON config load/save
 ├── Hotkey.swift            # Hotkey model + key code mapping
 ├── SettingsView.swift      # SwiftUI settings UI (running apps + hotkeys in one list)
@@ -86,10 +87,6 @@ Hard-won gotchas — do not rediscover these:
 
 ## Repo conventions and traps
 
-- **`.gitignore` trap**: the bare `HotkeyLauncher` pattern (meant for bundle artifacts)
-  also matches `Sources/HotkeyLauncher/`, so `git add` refuses **new** files there.
-  Already-tracked files are fine (`git commit -a` works). Use `git add -f` for new
-  source files, or anchor the ignore pattern.
 - Accessibility permission is granted per-binary; a rebuilt or moved binary may need
   the permission re-granted in System Settings.
 - Logging is `print` with a `[Component]` prefix (e.g. `[AppManager]`, `[HotkeyManager]`).
