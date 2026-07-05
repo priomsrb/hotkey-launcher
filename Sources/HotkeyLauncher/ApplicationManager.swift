@@ -61,6 +61,11 @@ class ApplicationManager {
     /// - If already focused: Cycle to next window
     func activateOrLaunch(bundleId: String) {
         print("[AppManager] activateOrLaunch called for: \(bundleId)")
+        let start = Date()
+        defer {
+            let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
+            print("[AppManager] Switch for \(bundleId) took \(elapsedMs)ms")
+        }
 
         guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) else {
             print("[AppManager] App not running, launching...")
@@ -100,6 +105,11 @@ class ApplicationManager {
     private func getWindowsForApp(_ app: NSRunningApplication) -> [AXUIElement] {
         let pid = app.processIdentifier
         let appElement = AXUIElementCreateApplication(pid)
+        let start = Date()
+        defer {
+            let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
+            print("[AppManager] Window discovery for \(app.localizedName ?? "app") took \(elapsedMs)ms")
+        }
 
         // The window the app itself considers focused - always include it
         var focusedWindow: AXUIElement?
@@ -274,6 +284,11 @@ class ApplicationManager {
         let targeted = !targetIDs.isEmpty
         let maxElementID: AXUIElementID = targeted ? 30_000 : 2000
         let budgetMs: Double = targeted ? 500 : 250
+        let start = Date()
+        defer {
+            let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
+            print("[AppManager] Brute-force scan (\(targeted ? "targeted" : "blind")) took \(elapsedMs)ms, found \(axWindows.count) window(s)")
+        }
         let timer = LightweightTimer()
         for axUiElementId: AXUIElementID in 0..<maxElementID {
             remoteToken.replaceSubrange(12..<20, with: withUnsafeBytes(of: axUiElementId) { Data($0) })
