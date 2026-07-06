@@ -101,15 +101,15 @@ struct SettingsView: View {
     private var searchField: some View {
         HStack(spacing: 4) {
             Image(systemName: "magnifyingglass")
-                .font(.caption)
+                .font(.callout)
                 .foregroundColor(.secondary)
             TextField("Search", text: $searchText)
                 .textFieldStyle(PlainTextFieldStyle())
-                .font(.caption)
+                .font(.callout)
             if !searchText.isEmpty {
                 Button(action: { searchText = "" }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.caption)
+                        .font(.callout)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -124,7 +124,7 @@ struct SettingsView: View {
 
     private var sectionApplications: some View {
         Section(header: HStack {
-            Text("Applications").font(.caption).foregroundColor(.secondary)
+            Text("Applications").font(.callout).foregroundColor(.secondary)
             Spacer()
             searchField
         }) {
@@ -147,7 +147,7 @@ struct SettingsView: View {
     private var sectionExceptions: some View {
         Group {
             if !filteredExceptions.isEmpty {
-                Section(header: Text("Exceptions (Hotkeys disabled when these apps are focused)").font(.caption).foregroundColor(.secondary)) {
+                Section(header: Text("Exceptions (Hotkeys disabled when these apps are focused)").font(.callout).foregroundColor(.secondary)) {
                     ForEach(filteredExceptions, id: \.self) { bundleId in
                         ExceptionRow(bundleId: bundleId, onDelete: deleteException)
                     }
