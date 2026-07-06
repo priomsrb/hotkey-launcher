@@ -67,6 +67,20 @@ class ApplicationManager {
             print("[AppManager] Switch for \(bundleId) took \(elapsedMs)ms")
         }
 
+        // A hotkey for HotkeyLauncher itself means "show settings". Handle it
+        // in-process: the debug binary has no bundle ID, so the running-app
+        // lookup below misses it and would cold-launch (with a HUD) a second
+        // instance that the single-instance guard immediately exits.
+        if bundleId == "com.priomsrb.HotkeyLauncher" {
+            print("[AppManager] Hotkey targets ourselves, showing settings")
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("com.priomsrb.HotkeyLauncher.ShowSettings"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true)
+            return
+        }
+
         guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) else {
             print("[AppManager] App not running, launching...")
             launchApp(bundleId: bundleId)
