@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var recordingBundleId: String? = nil
     @State private var tempKey = ""
     @State private var tempModifiers: [String] = []
+    @State private var searchText = ""
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     var onClose: (() -> Void)? = nil
     
@@ -42,7 +43,34 @@ struct SettingsView: View {
         }
         return items.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
-    
+
+    private var filteredApps: [AppItem] {
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return combinedApps }
+        return combinedApps.filter { matchesSearch($0, query: query) }
+    }
+
+    private var filteredExceptions: [String] {
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return exceptions }
+        return exceptions.filter {
+            ApplicationManager.shared.getAppName(bundleId: $0).localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private func matchesSearch(_ item: AppItem, query: String) -> Bool {
+        if item.name.localizedCaseInsensitiveContains(query) {
+            return true
+        }
+        guard let hotkey = item.hotkey, !hotkey.key.isEmpty else { return false }
+        if hotkey.displayString.localizedCaseInsensitiveContains(query) {
+            return true
+        }
+        let parts = hotkey.modifiers + [hotkey.key]
+        return parts.joined(separator: " ").localizedCaseInsensitiveContains(query)
+            || parts.joined(separator: "+").localizedCaseInsensitiveContains(query)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
@@ -70,9 +98,37 @@ struct SettingsView: View {
         .onChange(of: tempKey, perform: handleTempKeyChange)
     }
 
+    private var searchField: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            TextField("Search", text: $searchText)
+                .textFieldStyle(PlainTextFieldStyle())
+                .font(.caption)
+            if !searchText.isEmpty {
+                Button(action: { searchText = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .frame(width: 160)
+        .background(Color.secondary.opacity(0.1))
+        .cornerRadius(5)
+    }
+
     private var sectionApplications: some View {
-        Section(header: Text("Applications").font(.caption).foregroundColor(.secondary)) {
-            ForEach(combinedApps) { item in
+        Section(header: HStack {
+            Text("Applications").font(.caption).foregroundColor(.secondary)
+            Spacer()
+            searchField
+        }) {
+            ForEach(filteredApps) { item in
                 AppRow(
                     item: item,
                     recordingBundleId: $recordingBundleId,
@@ -90,9 +146,9 @@ struct SettingsView: View {
 
     private var sectionExceptions: some View {
         Group {
-            if !exceptions.isEmpty {
+            if !filteredExceptions.isEmpty {
                 Section(header: Text("Exceptions (Hotkeys disabled when these apps are focused)").font(.caption).foregroundColor(.secondary)) {
-                    ForEach(exceptions, id: \.self) { bundleId in
+                    ForEach(filteredExceptions, id: \.self) { bundleId in
                         ExceptionRow(bundleId: bundleId, onDelete: deleteException)
                     }
                 }
@@ -166,6 +222,9 @@ struct SettingsView: View {
     }
     
     private func startRecording(for bundleId: String) {
+        if !filteredApps.contains(where: { $0.bundleId == bundleId }) {
+            searchText = ""
+        }
         recordingBundleId = bundleId
         tempKey = ""
         tempModifiers = []
