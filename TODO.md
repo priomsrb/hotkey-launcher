@@ -1,6 +1,5 @@
 ## TODO
 
-- [ ] Loading indicator stays open if I launch the HotkeyLauncher app itself
 - [ ] Have option to show message/indicator when switching apps
 - [ ] Make it possible to use the tab key to navigate the UI. Should make it easy to set all the hotkeys using just the keyboard.
 - [ ] Strange bug: Open settings window. Then open another app. Press cmd+q on the app, it closes our settings window too.
@@ -14,6 +13,7 @@
 
 ## Done
 
+- [x] Loading indicator stays open if I launch the HotkeyLauncher app itself
 - [x] Show how much time in ms it took to switch the app (Solved with timing logs)
 - [x] Show a message when an app is launched (Solved with LaunchHUD: a floating non-activating "Launching <App>…" bezel shown on cold launches, dismissed when the app activates; also shows launch failures)
 - [x] Find a more reliable method to find all windows in all spaces (including full screen) in a non-brute force way (Solved by asking the window server via private SkyLight APIs for the exact window IDs on every space, then brute-forcing only the specific missing IDs)
