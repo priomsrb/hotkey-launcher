@@ -1,5 +1,6 @@
 import Cocoa
 import SwiftUI
+import ServiceManagement
 
 /// Main application delegate - sets up menu bar and coordinates components
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -80,20 +81,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(NSMenuItem(title: "HotkeyLauncher", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
-        
+
         menu.addItem(NSMenuItem.separator())
-        
-        let reloadItem = NSMenuItem(title: "Reload Config", action: #selector(reloadConfig), keyEquivalent: "r")
+
+        if #available(macOS 13.0, *) {
+            let loginItem = NSMenuItem(title: "Start at Login", action: #selector(toggleStartAtLogin), keyEquivalent: "")
+            loginItem.target = self
+            menu.addItem(loginItem)
+        }
+
+        // Config plumbing is a dev/power-user concern; keep it out of the top level
+        let advancedMenu = NSMenu()
+        let reloadItem = NSMenuItem(title: "Reload Config", action: #selector(reloadConfig), keyEquivalent: "")
         reloadItem.target = self
-        menu.addItem(reloadItem)
-        
+        advancedMenu.addItem(reloadItem)
+
         let showConfigItem = NSMenuItem(title: "Show Config in Finder", action: #selector(showConfigInFinder), keyEquivalent: "")
         showConfigItem.target = self
-        menu.addItem(showConfigItem)
-        
+        advancedMenu.addItem(showConfigItem)
+
+        let advancedItem = NSMenuItem(title: "Advanced", action: nil, keyEquivalent: "")
+        advancedItem.submenu = advancedMenu
+        menu.addItem(advancedItem)
+
         menu.addItem(NSMenuItem.separator())
         
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
@@ -115,7 +128,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered, defer: false)
             window.center()
-            window.title = "HotkeyLauncher Settings"
+            window.title = "HotkeyLauncher"
             window.isReleasedWhenClosed = false
             window.delegate = self
             window.contentView = NSHostingView(rootView: contentView)
@@ -158,6 +171,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSWorkspace.shared.activateFileViewerSelecting([configURL])
     }
     
+    /// Toggle launching the app automatically at login (macOS 13+)
+    @objc private func toggleStartAtLogin() {
+        guard #available(macOS 13.0, *) else { return }
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't change Start at Login"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.runModal()
+        }
+    }
+
+    // MARK: - NSMenuItemValidation
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(toggleStartAtLogin), #available(macOS 13.0, *) {
+            menuItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        }
+        return true
+    }
+
     /// Quit the application
     @objc private func quit() {
         NSApplication.shared.terminate(nil)

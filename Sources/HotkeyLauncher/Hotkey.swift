@@ -76,6 +76,9 @@ struct Hotkey: Codable, Equatable, Identifiable {
         return result
     }
     
+    /// Keys that can be registered as hotkeys (e.g. for suggesting shortcuts)
+    static var supportedKeys: Set<String> { Set(keyCodeMap.keys) }
+
     /// Map of key characters to key codes
     private static let keyCodeMap: [String: UInt16] = [
         "a": 0x00, "s": 0x01, "d": 0x02, "f": 0x03, "h": 0x04,

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ApplicationServices
 
 struct SettingsView: View {
     @State private var hotkeys: [Hotkey] = []
@@ -9,10 +10,18 @@ struct SettingsView: View {
     @State private var tempKey = ""
     @State private var tempModifiers: [String] = []
     @State private var searchText = ""
+    @State private var filter: AppFilter = .all
     @State private var selectedRow: RowID? = nil
+    @State private var axTrusted = AXIsProcessTrusted()
     @FocusState private var focusTarget: FocusTarget?
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     var onClose: (() -> Void)? = nil
+
+    enum AppFilter: String, CaseIterable {
+        case all = "All"
+        case assigned = "Assigned"
+        case unassigned = "Unassigned"
+    }
 
     // An app can appear both as an Applications row and an Exceptions row,
     // so selection needs more than the bundle id.
@@ -37,28 +46,30 @@ struct SettingsView: View {
         let name: String
         let hotkey: Hotkey?
         let runningApp: NSRunningApplication?
-        let hasConflict: Bool
+        let conflictingApp: String?
+        var isAssigned: Bool { hotkey.map { !$0.key.isEmpty } ?? false }
         var id: RowID { .app(bundleId) }
     }
-    
+
     private var combinedApps: [AppItem] {
         var items: [AppItem] = []
         let allHotkeys = hotkeys
-        
+
         for hotkey in hotkeys {
             let name = ApplicationManager.shared.getAppName(bundleId: hotkey.bundleId)
-            let hasConflict = allHotkeys.contains { other in
-                other.bundleId != hotkey.bundleId && 
-                !other.key.isEmpty && 
-                other.key == hotkey.key && 
+            let conflicting = allHotkeys.first { other in
+                other.bundleId != hotkey.bundleId &&
+                !other.key.isEmpty &&
+                other.key == hotkey.key &&
                 other.modifiers.sorted() == hotkey.modifiers.sorted()
             }
-            items.append(AppItem(bundleId: hotkey.bundleId, name: name, hotkey: hotkey, runningApp: nil, hasConflict: hasConflict))
+            let conflictName = conflicting.map { ApplicationManager.shared.getAppName(bundleId: $0.bundleId) }
+            items.append(AppItem(bundleId: hotkey.bundleId, name: name, hotkey: hotkey, runningApp: nil, conflictingApp: conflictName))
         }
         for app in runningApps {
             if let bundleId = app.bundleIdentifier {
                 let name = app.localizedName ?? "Unknown"
-                items.append(AppItem(bundleId: bundleId, name: name, hotkey: nil, runningApp: app, hasConflict: false))
+                items.append(AppItem(bundleId: bundleId, name: name, hotkey: nil, runningApp: app, conflictingApp: nil))
             }
         }
         return items.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -66,8 +77,14 @@ struct SettingsView: View {
 
     private var filteredApps: [AppItem] {
         let query = searchText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return combinedApps }
-        return combinedApps.filter { matchesSearch($0, query: query) }
+        return combinedApps.filter { item in
+            switch filter {
+            case .all: break
+            case .assigned: guard item.isAssigned else { return false }
+            case .unassigned: guard !item.isAssigned else { return false }
+            }
+            return query.isEmpty || matchesSearch(item, query: query)
+        }
     }
 
     private var filteredExceptions: [String] {
@@ -76,6 +93,15 @@ struct SettingsView: View {
         return exceptions.filter {
             ApplicationManager.shared.getAppName(bundleId: $0).localizedCaseInsensitiveContains(query)
         }
+    }
+
+    /// Exceptions aren't hotkeys, so they only show under the "All" filter
+    private var visibleExceptions: [String] {
+        filter == .all ? filteredExceptions : []
+    }
+
+    private var hasAssignedHotkeys: Bool {
+        hotkeys.contains { !$0.key.isEmpty }
     }
 
     private func matchesSearch(_ item: AppItem, query: String) -> Bool {
@@ -93,6 +119,16 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if !axTrusted {
+                accessibilityBanner
+                Divider()
+            }
+            headerBar
+            Divider()
+            if !hasAssignedHotkeys {
+                firstRunHint
+                Divider()
+            }
             ScrollViewReader { proxy in
                 List(selection: $selectedRow) {
                     sectionApplications
@@ -126,8 +162,66 @@ struct SettingsView: View {
             }
             DispatchQueue.main.async { focusTarget = .list }
         }
-        .onReceive(timer) { _ in updateRunningApps() }
+        .onReceive(timer) { _ in
+            updateRunningApps()
+            axTrusted = AXIsProcessTrusted()
+        }
         .onChange(of: tempKey, perform: handleTempKeyChange)
+        .onChange(of: filter) { _ in handleFilterChange() }
+    }
+
+    private var accessibilityBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+                .accessibilityHidden(true)
+            Text("Accessibility access is needed to switch and cycle windows reliably.")
+                .font(.callout)
+            Spacer()
+            Button("Open System Settings…") {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.12))
+    }
+
+    private var headerBar: some View {
+        HStack(spacing: 12) {
+            searchField
+            Spacer()
+            Picker("Filter", selection: $filter) {
+                ForEach(AppFilter.allCases, id: \.self) { choice in
+                    Text(choice.rawValue).tag(choice)
+                }
+            }
+            .pickerStyle(SegmentedPickerStyle())
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityLabel("Filter applications")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var firstRunHint: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .foregroundColor(.accentColor)
+                .accessibilityHidden(true)
+            Text("No hotkeys yet. Select an app and press Return, or hover a row and click Record Shortcut.")
+                .font(.callout)
+                .foregroundColor(.secondary)
+            Spacer()
+            Button("Suggest Hotkeys") { suggestHotkeys() }
+                .help("Assign ⌃⌥ + a letter of the app's name to each running app")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.accentColor.opacity(0.06))
     }
 
     private var searchField: some View {
@@ -152,20 +246,33 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
-        .frame(width: 160)
+        .frame(minWidth: 140, maxWidth: 220)
         .background(Color.secondary.opacity(0.1))
         .cornerRadius(5)
     }
 
+    private var emptyListMessage: String {
+        if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "No apps match “\(searchText)”"
+        }
+        switch filter {
+        case .assigned: return "No hotkeys assigned yet"
+        case .unassigned: return "Every running app has a hotkey"
+        case .all: return "No applications"
+        }
+    }
+
     private var sectionApplications: some View {
-        Section(header: HStack {
-            Text("Applications").font(.callout).foregroundColor(.secondary)
-            Spacer()
-            searchField
-        }) {
+        Section(header: Text("Applications").font(.callout).foregroundColor(.secondary)) {
+            if filteredApps.isEmpty {
+                Text(emptyListMessage)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 8)
+            }
             ForEach(filteredApps) { item in
                 AppRow(
                     item: item,
+                    isSelected: selectedRow == item.id,
                     recordingBundleId: $recordingBundleId,
                     tempKey: $tempKey,
                     tempModifiers: $tempModifiers,
@@ -180,10 +287,18 @@ struct SettingsView: View {
 
     private var sectionExceptions: some View {
         Group {
-            if !filteredExceptions.isEmpty {
-                Section(header: Text("Exceptions (Hotkeys disabled when these apps are focused)").font(.callout).foregroundColor(.secondary)) {
-                    ForEach(filteredExceptions.map { RowID.exception($0) }, id: \.self) { row in
-                        ExceptionRow(bundleId: row.bundleId, onDelete: deleteException)
+            if !visibleExceptions.isEmpty {
+                Section(header: Text("Exceptions")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .help("Hotkeys are disabled while one of these apps is focused")
+                ) {
+                    ForEach(visibleExceptions.map { RowID.exception($0) }, id: \.self) { row in
+                        ExceptionRow(
+                            bundleId: row.bundleId,
+                            isSelected: selectedRow == row,
+                            onDelete: deleteException
+                        )
                     }
                 }
             }
@@ -192,33 +307,22 @@ struct SettingsView: View {
 
     private var footerView: some View {
         HStack {
-            Button(action: prepareForAdd) {
-                Label("Add Hotkey", systemImage: "plus")
+            Menu {
+                Button("Add App…", action: prepareForAdd)
+                Button("Add Exception…", action: addException)
+            } label: {
+                Label("Add", systemImage: "plus")
             }
-            .keyboardShortcut("n", modifiers: .command)
-            .help("Add Hotkey (⌘N)")
-            .padding(.leading)
-            .padding(.vertical)
-
-            Button(action: addException) {
-                Label("Add Exception", systemImage: "plus")
-            }
-            .keyboardShortcut("n", modifiers: [.command, .shift])
-            .help("Add Exception (⇧⌘N)")
-            .padding(.leading)
-            .padding(.vertical)
+            .fixedSize()
+            .help("Add App (⌘N) or Exception (⇧⌘N)")
 
             Spacer()
 
-            Button("Done") {
-                closeWindow()
-            }
-            .keyboardShortcut("w", modifiers: .command)
-            .help("Close (⌘W)")
-            .padding()
-
-            // Hidden buttons for global shortcuts
+            // Hidden buttons for keyboard shortcuts
             Group {
+                Button("") { prepareForAdd() }.keyboardShortcut("n", modifiers: .command)
+                Button("") { addException() }.keyboardShortcut("n", modifiers: [.command, .shift])
+                Button("") { closeWindow() }.keyboardShortcut("w", modifiers: .command)
                 Button("") { handleEscape() }.keyboardShortcut(.cancelAction)
                 Button("") { handleReturn() }.keyboardShortcut(.return, modifiers: [])
                 Button("") { focusTarget = .search }.keyboardShortcut("f", modifiers: .command)
@@ -226,10 +330,12 @@ struct SettingsView: View {
             }
             .opacity(0).frame(width: 0, height: 0)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     private var allRowIDs: [RowID] {
-        filteredApps.map { RowID.app($0.bundleId) } + filteredExceptions.map { RowID.exception($0) }
+        filteredApps.map { RowID.app($0.bundleId) } + visibleExceptions.map { RowID.exception($0) }
     }
 
     private func handleReturn() {
@@ -251,6 +357,23 @@ struct SettingsView: View {
         } else {
             closeWindow()
         }
+    }
+
+    private func handleFilterChange() {
+        // The recording row may have been filtered out from under the
+        // recorder; cancel so hotkeys don't stay suspended.
+        if let recording = recordingBundleId, !filteredApps.contains(where: { $0.bundleId == recording }) {
+            cancelRecording(for: recording)
+        }
+        if let row = selectedRow, allRowIDs.contains(row) { return }
+        selectedRow = allRowIDs.first
+    }
+
+    private func cancelRecording(for bundleId: String) {
+        recordingBundleId = nil
+        tempKey = ""
+        tempModifiers = []
+        hotkeys.removeAll { $0.bundleId == bundleId && $0.key.isEmpty }
     }
 
     private func selectFirstMatch() {
@@ -314,17 +437,49 @@ struct SettingsView: View {
             }
         }
     }
-    
+
     private func startRecording(for bundleId: String) {
         if !filteredApps.contains(where: { $0.bundleId == bundleId }) {
             searchText = ""
+        }
+        if !filteredApps.contains(where: { $0.bundleId == bundleId }) {
+            filter = .all
         }
         selectedRow = .app(bundleId)
         recordingBundleId = bundleId
         tempKey = ""
         tempModifiers = []
     }
-    
+
+    /// Offer conflict-free starter hotkeys: ⌃⌥ + a letter of each running
+    /// app's name. ⌃⌥ so suggestions can't shadow common app shortcuts or
+    /// ⌥-typed special characters.
+    private func suggestHotkeys() {
+        var used = Set(hotkeys.filter { !$0.key.isEmpty }.map { comboKey(modifiers: $0.modifiers, key: $0.key) })
+        let suggestionMods = ["ctrl", "opt"]
+
+        for app in runningApps {
+            guard let bundleId = app.bundleIdentifier else { continue }
+            guard !hotkeys.contains(where: { $0.bundleId == bundleId && !$0.key.isEmpty }) else { continue }
+            let name = app.localizedName ?? ""
+            let candidates = name.lowercased().map(String.init).filter { Hotkey.supportedKeys.contains($0) }
+            guard let key = candidates.first(where: { !used.contains(comboKey(modifiers: suggestionMods, key: $0)) }) else { continue }
+            used.insert(comboKey(modifiers: suggestionMods, key: key))
+
+            let suggestion = Hotkey(key: key, modifiers: suggestionMods, bundleId: bundleId)
+            if let index = hotkeys.firstIndex(where: { $0.bundleId == bundleId }) {
+                hotkeys[index] = suggestion
+            } else {
+                hotkeys.append(suggestion)
+            }
+        }
+        saveToConfig()
+    }
+
+    private func comboKey(modifiers: [String], key: String) -> String {
+        (modifiers.map { $0.lowercased() }.sorted() + [key.lowercased()]).joined(separator: "+")
+    }
+
     private func closeWindow() {
         if let onClose = onClose {
             onClose()
@@ -332,17 +487,17 @@ struct SettingsView: View {
             NSApplication.shared.keyWindow?.close()
         }
     }
-    
+
     private func deleteHotkey(_ hotkey: Hotkey) {
         hotkeys.removeAll { $0.id == hotkey.id }
         saveToConfig()
     }
-    
+
     private func deleteException(_ bundleId: String) {
         exceptions.removeAll { $0 == bundleId }
         saveToConfig()
     }
-    
+
     private func addException() {
         ApplicationManager.shared.pickApplication { bundleId in
             if let bundleId = bundleId {
@@ -350,30 +505,34 @@ struct SettingsView: View {
                     exceptions.append(bundleId)
                     saveToConfig()
                 }
+                // Make sure the new row is visible and selected
+                searchText = ""
+                filter = .all
+                selectedRow = .exception(bundleId)
             }
         }
     }
-    
+
     private func saveOrAddHotkey(bundleId: String, key: String, modifiers: [String]) {
         if key.isEmpty { return }
         let newHotkey = Hotkey(key: key, modifiers: modifiers, bundleId: bundleId)
-        
+
         if let index = hotkeys.firstIndex(where: { $0.bundleId == bundleId }) {
             hotkeys[index] = newHotkey
         } else {
             hotkeys.append(newHotkey)
         }
-        
+
         saveToConfig()
     }
-    
+
     private func saveToConfig() {
         let config = HotkeyConfig(hotkeys: hotkeys, exceptions: exceptions)
         ConfigManager.shared.saveConfig(config)
         HotkeyManager.shared.updateConfig(hotkeys: hotkeys, exceptions: exceptions)
         updateRunningApps()
     }
-    
+
     private func updateRunningApps() {
         let allRunning = ApplicationManager.shared.getRunningApplications()
         let existingBundleIds = Set(hotkeys.map { $0.bundleId })
@@ -386,6 +545,7 @@ struct SettingsView: View {
 
 private struct AppRow: View {
     let item: SettingsView.AppItem
+    let isSelected: Bool
     @Binding var recordingBundleId: String?
     @Binding var tempKey: String
     @Binding var tempModifiers: [String]
@@ -393,6 +553,11 @@ private struct AppRow: View {
     let onDelete: (Hotkey) -> Void
     let onStartRecording: (String) -> Void
     let onSave: () -> Void
+    @State private var isHovering = false
+
+    /// Row controls (delete, record) only show on hover or selection to keep
+    /// the long list quiet; keyboard users get ⌫ and Return instead.
+    private var showsControls: Bool { isHovering || isSelected }
 
     var body: some View {
         HStack {
@@ -408,23 +573,19 @@ private struct AppRow: View {
                 }
             }
             .accessibilityHidden(true)
-            
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
                     .font(.headline)
-                if item.hasConflict {
-                    Label("Shortcut conflict", systemImage: "exclamationmark.triangle.fill")
+                if let conflictingApp = item.conflictingApp {
+                    Label("Conflicts with \(conflictingApp)", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundColor(.orange)
-                } else if item.hotkey == nil || item.hotkey?.key.isEmpty == true {
-                    Text("No hotkey assigned")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
             }
-            
+
             Spacer()
-            
+
             if recordingBundleId == item.bundleId {
                 ShortcutNSViewRepresentable(key: $tempKey, modifiers: $tempModifiers, isFocused: .constant(true), onCancel: {
                     recordingBundleId = nil
@@ -441,7 +602,7 @@ private struct AppRow: View {
                 })
                 .frame(width: 150, height: 30)
                 .overlay(
-                    Text("Recording... Press keys")
+                    Text("Type shortcut…")
                         .font(.caption)
                         .foregroundColor(.accentColor)
                         .padding(.horizontal, 8)
@@ -450,6 +611,7 @@ private struct AppRow: View {
                         .cornerRadius(4)
                         .allowsHitTesting(false)
                 )
+                .help("Esc cancels · Delete removes the hotkey")
             } else if let hotkey = item.hotkey, !hotkey.key.isEmpty {
                 Button(action: {
                     onStartRecording(item.bundleId)
@@ -457,7 +619,7 @@ private struct AppRow: View {
                     Text(hotkey.displayString)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.secondary.opacity(0.1))
+                        .background(item.conflictingApp == nil ? Color.secondary.opacity(0.1) : Color.orange.opacity(0.2))
                         .cornerRadius(4)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -473,30 +635,39 @@ private struct AppRow: View {
                 .buttonStyle(PlainButtonStyle())
                 .padding(.leading, 8)
                 .accessibilityLabel("Remove hotkey for \(item.name)")
+                .opacity(showsControls ? 1 : 0)
+                .allowsHitTesting(showsControls)
             } else {
                 Button(action: {
                     onStartRecording(item.bundleId)
                 }) {
-                    Text("Assign Hotkey")
+                    Text("Record Shortcut")
+                        .foregroundColor(.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.1))
+                        .background(Color.secondary.opacity(0.08))
                         .cornerRadius(4)
                 }
                 .buttonStyle(PlainButtonStyle())
-                .accessibilityLabel("Assign hotkey for \(item.name)")
+                .accessibilityLabel("Record shortcut for \(item.name)")
+                .opacity(showsControls ? 1 : 0)
+                .allowsHitTesting(showsControls)
             }
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
         .background(recordingBundleId == item.bundleId ? Color.accentColor.opacity(0.1) : Color.clear)
         .cornerRadius(8)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
     }
 }
 
 private struct ExceptionRow: View {
     let bundleId: String
+    let isSelected: Bool
     let onDelete: (String) -> Void
+    @State private var isHovering = false
 
     var body: some View {
         HStack {
@@ -525,7 +696,11 @@ private struct ExceptionRow: View {
             }
             .buttonStyle(PlainButtonStyle())
             .accessibilityLabel("Remove exception for \(ApplicationManager.shared.getAppName(bundleId: bundleId))")
+            .opacity(isHovering || isSelected ? 1 : 0)
+            .allowsHitTesting(isHovering || isSelected)
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
     }
 }

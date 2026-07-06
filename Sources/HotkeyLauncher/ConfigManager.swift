@@ -92,13 +92,11 @@ class ConfigManager {
         saveConfig(HotkeyConfig(hotkeys: hotkeys, exceptions: exceptions))
     }
     
-    /// Default hotkey configuration
+    /// Default hotkey configuration. Empty: pre-assigned hotkeys like ⌘T/⌘S
+    /// would shadow common shortcuts system-wide on a fresh install. The
+    /// settings window offers suggestions instead.
     private func defaultHotkeys() -> [Hotkey] {
-        return [
-            Hotkey(key: "t", modifiers: ["cmd"], bundleId: "com.apple.Terminal"),
-            Hotkey(key: "s", modifiers: ["cmd"], bundleId: "com.apple.Safari"),
-            Hotkey(key: "f", modifiers: ["cmd"], bundleId: "com.apple.finder")
-        ]
+        return []
     }
     
     /// Get the path to the config file for display
