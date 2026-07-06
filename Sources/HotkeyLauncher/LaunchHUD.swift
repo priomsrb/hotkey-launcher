@@ -51,7 +51,34 @@ final class LaunchHUD {
               let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
               app.bundleIdentifier == pending else { return }
         pendingBundleId = nil
-        fadeOut()
+        waitForFirstWindow(pid: app.processIdentifier)
+    }
+
+    /// A cold-launching app activates before its first window is on screen,
+    /// so fading on activation leaves a beat where nothing is visible. Hold
+    /// the HUD until the app owns an onscreen window, bounded so an app that
+    /// activates windowless can't pin the HUD forever.
+    private func waitForFirstWindow(pid: pid_t, deadline: Date = Date().addingTimeInterval(5)) {
+        if hasOnscreenWindow(pid: pid) || Date() >= deadline {
+            fadeOut()
+            return
+        }
+        let shownGeneration = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self, self.generation == shownGeneration else { return }
+            self.waitForFirstWindow(pid: pid, deadline: deadline)
+        }
+    }
+
+    private func hasOnscreenWindow(pid: pid_t) -> Bool {
+        guard let windows = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return false
+        }
+        return windows.contains { window in
+            window[kCGWindowOwnerPID as String] as? Int == Int(pid)
+                && window[kCGWindowLayer as String] as? Int == 0
+        }
     }
 
     // MARK: - Presentation
