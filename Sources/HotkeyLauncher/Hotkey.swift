@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import Carbon
 
 /// Represents a hotkey configuration mapping a key combination to an application
 struct Hotkey: Codable, Equatable, Identifiable {
@@ -34,6 +35,26 @@ struct Hotkey: Codable, Equatable, Identifiable {
         return flags
     }
     
+    /// Convert modifier strings to Carbon modifier flags (for RegisterEventHotKey)
+    var carbonModifiers: UInt32 {
+        var mods: UInt32 = 0
+        for modifier in modifiers {
+            switch modifier.lowercased() {
+            case "cmd", "command":
+                mods |= UInt32(cmdKey)
+            case "opt", "option", "alt":
+                mods |= UInt32(optionKey)
+            case "ctrl", "control":
+                mods |= UInt32(controlKey)
+            case "shift":
+                mods |= UInt32(shiftKey)
+            default:
+                break
+            }
+        }
+        return mods
+    }
+
     /// Get the key code for the key character
     var keyCode: UInt16? {
         return Hotkey.keyCodeMap[key.lowercased()]

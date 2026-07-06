@@ -1,8 +1,9 @@
 # HotkeyLauncher
 
 A macOS menu bar app that registers global keyboard shortcuts to launch/switch
-applications and cycle through their windows. Requires macOS 12+ and
-Accessibility permission (prompted on first launch).
+applications and cycle through their windows. Requires macOS 12+.
+Accessibility permission (prompted on first launch) is needed for window
+cycling; the global hotkeys themselves work without it.
 
 ## Build
 

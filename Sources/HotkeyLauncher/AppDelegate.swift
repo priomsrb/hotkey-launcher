@@ -11,6 +11,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Set up the menu bar item
         setupStatusBar()
         
+        // Hotkeys themselves (Carbon) don't need Accessibility, but the AX
+        // window discovery/cycling in ApplicationManager does. Prompt at
+        // launch so a fresh install gets the permission dialog; don't block
+        // on it since hotkeys work regardless.
+        let axOptions = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        if !AXIsProcessTrustedWithOptions(axOptions) {
+            print("Accessibility permission not granted — window cycling will be limited until approved")
+        }
+
         // Load configuration
         let config = ConfigManager.shared.loadConfig()
         hotkeys = config.hotkeys
