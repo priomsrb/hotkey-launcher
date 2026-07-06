@@ -9,16 +9,36 @@ struct SettingsView: View {
     @State private var tempKey = ""
     @State private var tempModifiers: [String] = []
     @State private var searchText = ""
+    @State private var selectedRow: RowID? = nil
+    @FocusState private var focusTarget: FocusTarget?
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     var onClose: (() -> Void)? = nil
-    
+
+    // An app can appear both as an Applications row and an Exceptions row,
+    // so selection needs more than the bundle id.
+    enum RowID: Hashable {
+        case app(String)
+        case exception(String)
+
+        var bundleId: String {
+            switch self {
+            case .app(let id), .exception(let id): return id
+            }
+        }
+    }
+
+    enum FocusTarget: Hashable {
+        case search
+        case list
+    }
+
     struct AppItem: Identifiable {
         let bundleId: String
         let name: String
         let hotkey: Hotkey?
         let runningApp: NSRunningApplication?
         let hasConflict: Bool
-        var id: String { bundleId }
+        var id: RowID { .app(bundleId) }
     }
     
     private var combinedApps: [AppItem] {
@@ -74,26 +94,38 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
-                List {
+                List(selection: $selectedRow) {
                     sectionApplications
                     sectionExceptions
                 }
                 .listStyle(InsetListStyle())
+                .focused($focusTarget, equals: .list)
+                .onDeleteCommand(perform: deleteSelectedRow)
                 .onChange(of: recordingBundleId) { newValue in
                     HotkeyManager.shared.isRecording = (newValue != nil)
                     if let bundleId = newValue {
                         withAnimation {
-                            proxy.scrollTo(bundleId, anchor: .center)
+                            proxy.scrollTo(RowID.app(bundleId), anchor: .center)
                         }
+                    } else {
+                        // Recording ended (saved or cancelled): hand focus back
+                        // to the list so arrow keys keep working.
+                        DispatchQueue.main.async { focusTarget = .list }
                     }
                 }
             }
-            
+
             Divider()
             footerView
         }
         .frame(minWidth: 500, minHeight: 400)
-        .onAppear(perform: loadData)
+        .onAppear {
+            loadData()
+            if selectedRow == nil {
+                selectedRow = allRowIDs.first
+            }
+            DispatchQueue.main.async { focusTarget = .list }
+        }
         .onReceive(timer) { _ in updateRunningApps() }
         .onChange(of: tempKey, perform: handleTempKeyChange)
     }
@@ -106,6 +138,8 @@ struct SettingsView: View {
             TextField("Search", text: $searchText)
                 .textFieldStyle(PlainTextFieldStyle())
                 .font(.callout)
+                .focused($focusTarget, equals: .search)
+                .onSubmit(selectFirstMatch)
             if !searchText.isEmpty {
                 Button(action: { searchText = "" }) {
                     Image(systemName: "xmark.circle.fill")
@@ -113,6 +147,7 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("Clear search")
             }
         }
         .padding(.horizontal, 6)
@@ -139,7 +174,6 @@ struct SettingsView: View {
                     onStartRecording: startRecording,
                     onSave: saveToConfig
                 )
-                .id(item.bundleId)
             }
         }
     }
@@ -148,8 +182,8 @@ struct SettingsView: View {
         Group {
             if !filteredExceptions.isEmpty {
                 Section(header: Text("Exceptions (Hotkeys disabled when these apps are focused)").font(.callout).foregroundColor(.secondary)) {
-                    ForEach(filteredExceptions, id: \.self) { bundleId in
-                        ExceptionRow(bundleId: bundleId, onDelete: deleteException)
+                    ForEach(filteredExceptions.map { RowID.exception($0) }, id: \.self) { row in
+                        ExceptionRow(bundleId: row.bundleId, onDelete: deleteException)
                     }
                 }
             }
@@ -161,34 +195,94 @@ struct SettingsView: View {
             Button(action: prepareForAdd) {
                 Label("Add Hotkey", systemImage: "plus")
             }
+            .keyboardShortcut("n", modifiers: .command)
+            .help("Add Hotkey (⌘N)")
             .padding(.leading)
             .padding(.vertical)
-            
+
             Button(action: addException) {
                 Label("Add Exception", systemImage: "plus")
             }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .help("Add Exception (⇧⌘N)")
             .padding(.leading)
             .padding(.vertical)
-            
+
             Spacer()
-            
+
             Button("Done") {
                 closeWindow()
             }
             .keyboardShortcut("w", modifiers: .command)
-            .keyboardShortcut(.defaultAction)
+            .help("Close (⌘W)")
             .padding()
-            
+
             // Hidden buttons for global shortcuts
             Group {
-                Button("") { 
-                    if recordingBundleId == nil {
-                        closeWindow() 
-                    }
-                }.keyboardShortcut(.cancelAction)
+                Button("") { handleEscape() }.keyboardShortcut(.cancelAction)
+                Button("") { handleReturn() }.keyboardShortcut(.return, modifiers: [])
+                Button("") { focusTarget = .search }.keyboardShortcut("f", modifiers: .command)
                 Button("") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q", modifiers: .command)
             }
             .opacity(0).frame(width: 0, height: 0)
+        }
+    }
+
+    private var allRowIDs: [RowID] {
+        filteredApps.map { RowID.app($0.bundleId) } + filteredExceptions.map { RowID.exception($0) }
+    }
+
+    private func handleReturn() {
+        if recordingBundleId != nil { return }
+        if focusTarget == .search {
+            selectFirstMatch()
+            return
+        }
+        if case .app(let bundleId) = selectedRow {
+            startRecording(for: bundleId)
+        }
+    }
+
+    private func handleEscape() {
+        if recordingBundleId != nil { return } // the recorder handles its own Escape
+        if focusTarget == .search || !searchText.isEmpty {
+            searchText = ""
+            focusTarget = .list
+        } else {
+            closeWindow()
+        }
+    }
+
+    private func selectFirstMatch() {
+        if let first = allRowIDs.first {
+            selectedRow = first
+        }
+        focusTarget = .list
+    }
+
+    private func deleteSelectedRow() {
+        guard let row = selectedRow else { return }
+        let rowsBefore = allRowIDs
+        let index = rowsBefore.firstIndex(of: row)
+
+        switch row {
+        case .app(let bundleId):
+            guard let hotkey = hotkeys.first(where: { $0.bundleId == bundleId }) else { return }
+            deleteHotkey(hotkey)
+        case .exception(let bundleId):
+            deleteException(bundleId)
+        }
+
+        // Keep the selection useful: stay on the row if it still exists
+        // (running apps keep their row after losing a hotkey), otherwise
+        // move to the nearest neighbor.
+        let rowsAfter = allRowIDs
+        if rowsAfter.contains(row) {
+            selectedRow = row
+        } else if let index = index, !rowsAfter.isEmpty {
+            selectedRow = rowsAfter[min(index, rowsAfter.count - 1)]
+        } else {
+            selectedRow = rowsAfter.first
         }
     }
 
@@ -225,6 +319,7 @@ struct SettingsView: View {
         if !filteredApps.contains(where: { $0.bundleId == bundleId }) {
             searchText = ""
         }
+        selectedRow = .app(bundleId)
         recordingBundleId = bundleId
         tempKey = ""
         tempModifiers = []
@@ -301,15 +396,18 @@ private struct AppRow: View {
 
     var body: some View {
         HStack {
-            if let icon = ApplicationManager.shared.getAppIcon(bundleId: item.bundleId) {
-                Image(nsImage: icon)
-                    .resizable()
-                    .frame(width: 32, height: 32)
-            } else {
-                Image(systemName: "app.dashed")
-                    .resizable()
-                    .frame(width: 32, height: 32)
+            Group {
+                if let icon = ApplicationManager.shared.getAppIcon(bundleId: item.bundleId) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 32, height: 32)
+                } else {
+                    Image(systemName: "app.dashed")
+                        .resizable()
+                        .frame(width: 32, height: 32)
+                }
             }
+            .accessibilityHidden(true)
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
@@ -353,15 +451,19 @@ private struct AppRow: View {
                         .allowsHitTesting(false)
                 )
             } else if let hotkey = item.hotkey, !hotkey.key.isEmpty {
-                Text(hotkey.displayString)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(4)
-                    .onTapGesture {
-                        onStartRecording(item.bundleId)
-                    }
-                
+                Button(action: {
+                    onStartRecording(item.bundleId)
+                }) {
+                    Text(hotkey.displayString)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.1))
+                        .cornerRadius(4)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("Hotkey \(hotkey.displayString) for \(item.name)")
+                .accessibilityHint("Records a new hotkey")
+
                 Button(action: {
                     onDelete(hotkey)
                 }) {
@@ -370,6 +472,7 @@ private struct AppRow: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .padding(.leading, 8)
+                .accessibilityLabel("Remove hotkey for \(item.name)")
             } else {
                 Button(action: {
                     onStartRecording(item.bundleId)
@@ -381,6 +484,7 @@ private struct AppRow: View {
                         .cornerRadius(4)
                 }
                 .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("Assign hotkey for \(item.name)")
             }
         }
         .padding(.vertical, 4)
@@ -396,20 +500,23 @@ private struct ExceptionRow: View {
 
     var body: some View {
         HStack {
-            if let icon = ApplicationManager.shared.getAppIcon(bundleId: bundleId) {
-                Image(nsImage: icon)
-                    .resizable()
-                    .frame(width: 24, height: 24)
-            } else {
-                Image(systemName: "app.badge.minus")
-                    .resizable()
-                    .frame(width: 24, height: 24)
+            Group {
+                if let icon = ApplicationManager.shared.getAppIcon(bundleId: bundleId) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 24, height: 24)
+                } else {
+                    Image(systemName: "app.badge.minus")
+                        .resizable()
+                        .frame(width: 24, height: 24)
+                }
             }
-            
+            .accessibilityHidden(true)
+
             Text(ApplicationManager.shared.getAppName(bundleId: bundleId))
-            
+
             Spacer()
-            
+
             Button(action: {
                 onDelete(bundleId)
             }) {
@@ -417,6 +524,7 @@ private struct ExceptionRow: View {
                     .foregroundColor(.red)
             }
             .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel("Remove exception for \(ApplicationManager.shared.getAppName(bundleId: bundleId))")
         }
         .padding(.vertical, 2)
     }
