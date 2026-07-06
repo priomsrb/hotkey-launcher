@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var tempModifiers: [String] = []
     @State private var searchText = ""
     @State private var filter: AppFilter = .all
+    @State private var showSuggestPopover = false
     @State private var selectedRow: RowID? = nil
     @State private var axTrusted = AXIsProcessTrusted()
     @FocusState private var focusTarget: FocusTarget?
@@ -21,6 +22,38 @@ struct SettingsView: View {
         case all = "All"
         case assigned = "Assigned"
         case unassigned = "Unassigned"
+    }
+
+    enum SuggestionScheme: CaseIterable {
+        case optLetter
+        case cmdNumber
+        case ctrlOptLetter
+
+        var title: String {
+            switch self {
+            case .cmdNumber: return "⌘ + Number"
+            case .optLetter: return "⌥ + Letter"
+            case .ctrlOptLetter: return "⌃⌥ + Letter"
+            }
+        }
+
+        var caption: String {
+            switch self {
+            case .cmdNumber: return "Numbered by list order, up to ten apps. Overrides ⌘-number shortcuts like browser tab switching."
+            case .optLetter: return "A letter from each app's name. Overrides typing special characters like å or ß."
+            case .ctrlOptLetter: return "A letter from each app's name. Almost never conflicts with anything."
+            }
+        }
+
+        var isRecommended: Bool { self == .optLetter }
+
+        var modifiers: [String] {
+            switch self {
+            case .cmdNumber: return ["cmd"]
+            case .optLetter: return ["opt"]
+            case .ctrlOptLetter: return ["ctrl", "opt"]
+            }
+        }
     }
 
     // An app can appear both as an Applications row and an Exceptions row,
@@ -216,12 +249,51 @@ struct SettingsView: View {
                 .font(.callout)
                 .foregroundColor(.secondary)
             Spacer()
-            Button("Suggest Hotkeys") { suggestHotkeys() }
-                .help("Assign ⌃⌥ + a letter of the app's name to each running app")
+            Button("Suggest Hotkeys…") { showSuggestPopover = true }
+                .help("Pick a style of suggested hotkeys for your running apps")
+                .popover(isPresented: $showSuggestPopover, arrowEdge: .bottom) {
+                    suggestPopover
+                }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.accentColor.opacity(0.06))
+    }
+
+    private var suggestPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Suggest Hotkeys")
+                    .font(.headline)
+                Text("Gives every running app a hotkey in one of these styles. You can change any of them afterwards.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+
+            Divider()
+
+            VStack(spacing: 2) {
+                ForEach(SuggestionScheme.allCases, id: \.self) { scheme in
+                    let suggestions = computeSuggestions(for: scheme)
+                    SuggestOptionRow(
+                        scheme: scheme,
+                        examples: suggestions.prefix(2).map {
+                            (display: $0.displayString,
+                             name: ApplicationManager.shared.getAppName(bundleId: $0.bundleId))
+                        },
+                        hasMore: suggestions.count > 2,
+                        isEnabled: !suggestions.isEmpty
+                    ) {
+                        showSuggestPopover = false
+                        applySuggestions(suggestions)
+                    }
+                }
+            }
+            .padding(6)
+        }
+        .frame(width: 380)
     }
 
     private var searchField: some View {
@@ -451,23 +523,37 @@ struct SettingsView: View {
         tempModifiers = []
     }
 
-    /// Offer conflict-free starter hotkeys: ⌃⌥ + a letter of each running
-    /// app's name. ⌃⌥ so suggestions can't shadow common app shortcuts or
-    /// ⌥-typed special characters.
-    private func suggestHotkeys() {
+    /// Conflict-free starter hotkeys for every running app without one,
+    /// in the given style. Skips combos that are already taken.
+    private func computeSuggestions(for scheme: SuggestionScheme) -> [Hotkey] {
         var used = Set(hotkeys.filter { !$0.key.isEmpty }.map { comboKey(modifiers: $0.modifiers, key: $0.key) })
-        let suggestionMods = ["ctrl", "opt"]
+        let numberKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+        var suggestions: [Hotkey] = []
 
         for app in runningApps {
             guard let bundleId = app.bundleIdentifier else { continue }
-            guard !hotkeys.contains(where: { $0.bundleId == bundleId && !$0.key.isEmpty }) else { continue }
-            let name = app.localizedName ?? ""
-            let candidates = name.lowercased().map(String.init).filter { Hotkey.supportedKeys.contains($0) }
-            guard let key = candidates.first(where: { !used.contains(comboKey(modifiers: suggestionMods, key: $0)) }) else { continue }
-            used.insert(comboKey(modifiers: suggestionMods, key: key))
+            let candidates: [String]
+            switch scheme {
+            case .cmdNumber:
+                candidates = numberKeys
+            case .optLetter, .ctrlOptLetter:
+                let name = app.localizedName ?? ""
+                candidates = name.lowercased().map(String.init).filter { Hotkey.supportedKeys.contains($0) }
+            }
+            guard let key = candidates.first(where: { !used.contains(comboKey(modifiers: scheme.modifiers, key: $0)) }) else {
+                // Numbers are shared across apps: running out means every
+                // later app is out too
+                if scheme == .cmdNumber { break } else { continue }
+            }
+            used.insert(comboKey(modifiers: scheme.modifiers, key: key))
+            suggestions.append(Hotkey(key: key, modifiers: scheme.modifiers, bundleId: bundleId))
+        }
+        return suggestions
+    }
 
-            let suggestion = Hotkey(key: key, modifiers: suggestionMods, bundleId: bundleId)
-            if let index = hotkeys.firstIndex(where: { $0.bundleId == bundleId }) {
+    private func applySuggestions(_ suggestions: [Hotkey]) {
+        for suggestion in suggestions {
+            if let index = hotkeys.firstIndex(where: { $0.bundleId == suggestion.bundleId }) {
                 hotkeys[index] = suggestion
             } else {
                 hotkeys.append(suggestion)
@@ -540,6 +626,79 @@ struct SettingsView: View {
             guard let bundleId = app.bundleIdentifier else { return false }
             return !existingBundleIds.contains(bundleId)
         }
+    }
+}
+
+private struct SuggestOptionRow: View {
+    let scheme: SettingsView.SuggestionScheme
+    let examples: [(display: String, name: String)]
+    let hasMore: Bool
+    let isEnabled: Bool
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(scheme.title)
+                        .fontWeight(.semibold)
+                    if scheme.isRecommended {
+                        Text("Recommended")
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .foregroundColor(.accentColor)
+                            .background(Color.accentColor.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                if examples.isEmpty {
+                    Text("No apps to assign")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    HStack(spacing: 8) {
+                        ForEach(examples, id: \.display) { example in
+                            HStack(spacing: 4) {
+                                Text(example.display)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(Color.secondary.opacity(0.12))
+                                    .cornerRadius(4)
+                                Text(example.name)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        if hasMore {
+                            Text("…")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                Text(scheme.caption)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(isHovering && isEnabled ? Color.accentColor.opacity(0.1) : Color.clear)
+            .cornerRadius(6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.5)
+        .onHover { isHovering = $0 }
+        .accessibilityLabel("\(scheme.title). \(scheme.caption)")
     }
 }
 
