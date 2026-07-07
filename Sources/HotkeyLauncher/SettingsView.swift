@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import ApplicationServices
+import ServiceManagement
 
 struct SettingsView: View {
     @State private var hotkeys: [Hotkey] = []
@@ -14,6 +15,9 @@ struct SettingsView: View {
     @State private var showSuggestPopover = false
     @State private var selectedRow: RowID? = nil
     @State private var axTrusted = AXIsProcessTrusted()
+    @State private var hasPromptedForAX = false
+    @State private var startsAtLogin = false
+    @State private var tryItHotkey: Hotkey? = nil
     @FocusState private var focusTarget: FocusTarget?
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     var onClose: (() -> Void)? = nil
@@ -159,7 +163,10 @@ struct SettingsView: View {
             headerBar
             Divider()
             if !hasAssignedHotkeys {
-                firstRunHint
+                welcomePane
+                Divider()
+            } else if let hotkey = tryItHotkey {
+                tryItBanner(for: hotkey)
                 Divider()
             }
             ScrollViewReader { proxy in
@@ -190,6 +197,7 @@ struct SettingsView: View {
         .frame(minWidth: 500, minHeight: 400)
         .onAppear {
             loadData()
+            syncStartAtLogin()
             if selectedRow == nil {
                 selectedRow = allRowIDs.first
             }
@@ -198,7 +206,9 @@ struct SettingsView: View {
         .onReceive(timer) { _ in
             updateRunningApps()
             axTrusted = AXIsProcessTrusted()
+            syncStartAtLogin()
         }
+        .onChange(of: startsAtLogin) { handleStartAtLoginChange($0) }
         .onChange(of: tempKey, perform: handleTempKeyChange)
         .onChange(of: filter) { _ in handleFilterChange() }
     }
@@ -211,9 +221,18 @@ struct SettingsView: View {
             Text("Accessibility access is needed to switch and cycle windows reliably.")
                 .font(.callout)
             Spacer()
-            Button("Open System Settings…") {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                    NSWorkspace.shared.open(url)
+            // First click uses the system prompt (which registers the app in
+            // the Accessibility list); after that fall back to opening the
+            // pane directly, since the prompt may not show again.
+            Button(hasPromptedForAX ? "Open System Settings…" : "Grant Access…") {
+                if hasPromptedForAX {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } else {
+                    let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+                    AXIsProcessTrustedWithOptions(options)
+                    hasPromptedForAX = true
                 }
             }
         }
@@ -240,24 +259,68 @@ struct SettingsView: View {
         .padding(.vertical, 8)
     }
 
-    private var firstRunHint: some View {
+    private var welcomePane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "keyboard")
+                    .font(.system(size: 26))
+                    .foregroundColor(.accentColor)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Welcome to HotkeyLauncher")
+                        .font(.headline)
+                    Text("Give an app a hotkey, then press it from anywhere to switch to that app. Press it again to cycle through the app's windows.")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack(spacing: 10) {
+                Button("Suggest Hotkeys…") { showSuggestPopover = true }
+                    .buttonStyle(BorderedProminentButtonStyle())
+                    .help("Pick a style of suggested hotkeys for your running apps")
+                    .popover(isPresented: $showSuggestPopover, arrowEdge: .bottom) {
+                        suggestPopover
+                    }
+                Text("or select an app below and press Return")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                Spacer()
+                if #available(macOS 13.0, *) {
+                    Toggle("Start at login", isOn: $startsAtLogin)
+                        .toggleStyle(CheckboxToggleStyle())
+                        .font(.callout)
+                        .help("Hotkeys only work while HotkeyLauncher is running")
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.06))
+    }
+
+    /// One-time confirmation after the very first hotkey is saved, so new
+    /// users get told the combo works everywhere and that repeat presses
+    /// cycle windows — nothing else in the UI teaches that.
+    private func tryItBanner(for hotkey: Hotkey) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "sparkles")
-                .foregroundColor(.accentColor)
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
                 .accessibilityHidden(true)
-            Text("No hotkeys yet. Select an app and press Return, or hover a row and click Record Shortcut.")
+            Text("Hotkey saved. Try it: press \(hotkey.displayString) from any app to switch to \(ApplicationManager.shared.getAppName(bundleId: hotkey.bundleId)), and press it again to cycle its windows.")
                 .font(.callout)
                 .foregroundColor(.secondary)
             Spacer()
-            Button("Suggest Hotkeys…") { showSuggestPopover = true }
-                .help("Pick a style of suggested hotkeys for your running apps")
-                .popover(isPresented: $showSuggestPopover, arrowEdge: .bottom) {
-                    suggestPopover
-                }
+            Button(action: { tryItHotkey = nil }) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.accentColor.opacity(0.06))
+        .background(Color.green.opacity(0.08))
     }
 
     private var suggestPopover: some View {
@@ -328,7 +391,7 @@ struct SettingsView: View {
             return "No apps match “\(searchText)”"
         }
         switch filter {
-        case .assigned: return "No hotkeys assigned yet"
+        case .assigned: return "No hotkeys assigned yet — switch to All and press Return on an app"
         case .unassigned: return "Every running app has a hotkey"
         case .all: return "No applications"
         }
@@ -552,6 +615,7 @@ struct SettingsView: View {
     }
 
     private func applySuggestions(_ suggestions: [Hotkey]) {
+        let wasUnconfigured = !hasAssignedHotkeys
         for suggestion in suggestions {
             if let index = hotkeys.firstIndex(where: { $0.bundleId == suggestion.bundleId }) {
                 hotkeys[index] = suggestion
@@ -560,6 +624,9 @@ struct SettingsView: View {
             }
         }
         saveToConfig()
+        if wasUnconfigured {
+            tryItHotkey = suggestions.first
+        }
     }
 
     private func comboKey(modifiers: [String], key: String) -> String {
@@ -601,6 +668,7 @@ struct SettingsView: View {
 
     private func saveOrAddHotkey(bundleId: String, key: String, modifiers: [String]) {
         if key.isEmpty { return }
+        let wasUnconfigured = !hasAssignedHotkeys
         let newHotkey = Hotkey(key: key, modifiers: modifiers, bundleId: bundleId)
 
         if let index = hotkeys.firstIndex(where: { $0.bundleId == bundleId }) {
@@ -610,6 +678,36 @@ struct SettingsView: View {
         }
 
         saveToConfig()
+        if wasUnconfigured {
+            tryItHotkey = newHotkey
+        }
+    }
+
+    // MARK: - Start at login
+
+    private func syncStartAtLogin() {
+        guard #available(macOS 13.0, *) else { return }
+        let enabled = SMAppService.mainApp.status == .enabled
+        if startsAtLogin != enabled {
+            startsAtLogin = enabled
+        }
+    }
+
+    private func handleStartAtLoginChange(_ enable: Bool) {
+        guard #available(macOS 13.0, *) else { return }
+        let service = SMAppService.mainApp
+        let isEnabled = service.status == .enabled
+        guard enable != isEnabled else { return }
+        do {
+            if enable {
+                try service.register()
+            } else {
+                try service.unregister()
+            }
+        } catch {
+            print("Couldn't change Start at Login: \(error)")
+            startsAtLogin = isEnabled
+        }
     }
 
     private func saveToConfig() {

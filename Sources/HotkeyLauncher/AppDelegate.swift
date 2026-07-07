@@ -3,37 +3,42 @@ import SwiftUI
 import ServiceManagement
 
 /// Main application delegate - sets up menu bar and coordinates components
-class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
+    private var statusMenuTitleItem: NSMenuItem?
     private var hotkeys: [Hotkey] = []
     private var settingsWindow: NSWindow?
-    
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set up the menu bar item
         setupStatusBar()
-        
+
+        // Load configuration
+        let config = ConfigManager.shared.loadConfig()
+        hotkeys = config.hotkeys
+        let hasAssignedHotkeys = hotkeys.contains { !$0.key.isEmpty }
+
         // Hotkeys themselves (Carbon) don't need Accessibility, but the AX
-        // window discovery/cycling in ApplicationManager does. Prompt at
-        // launch so a fresh install gets the permission dialog; don't block
-        // on it since hotkeys work regardless.
-        let axOptions = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-        if !AXIsProcessTrustedWithOptions(axOptions) {
-            print("Accessibility permission not granted — window cycling will be limited until approved")
+        // window discovery/cycling in ApplicationManager does. Only prompt at
+        // launch on configured installs — on a fresh install the welcome pane
+        // asks with context instead, so the first thing a new user sees isn't
+        // a permission dialog for an app they know nothing about.
+        if hasAssignedHotkeys {
+            let axOptions = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            if !AXIsProcessTrustedWithOptions(axOptions) {
+                print("Accessibility permission not granted — window cycling will be limited until approved")
+            }
         }
 
         // Track window focus history so cycling can order windows by actual
         // most-recent use instead of guessing from z-order
         WindowFocusTracker.shared.start()
 
-        // Load configuration
-        let config = ConfigManager.shared.loadConfig()
-        hotkeys = config.hotkeys
-        
         // Start the hotkey manager
         HotkeyManager.shared.start(hotkeys: hotkeys, exceptions: config.exceptions) { [weak self] hotkey in
             self?.handleHotkey(hotkey)
         }
-        
+
         print("HotkeyLauncher started!")
         print("Config file: \(ConfigManager.shared.configPath)")
         print("Registered hotkeys:")
@@ -42,8 +47,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             print("  \(modStr)+\(hotkey.key) -> \(hotkey.bundleId)")
         }
 
-        // Check for command line flags
-        if CommandLine.arguments.contains("--settings") {
+        // A menu-bar-only app with no hotkeys is invisible and useless, so an
+        // unconfigured launch opens settings — that covers fresh installs and
+        // installs that were never set up.
+        if CommandLine.arguments.contains("--settings") || !hasAssignedHotkeys {
             showSettings()
         }
 
@@ -81,8 +88,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         // Create the menu
         let menu = NSMenu()
-        
-        menu.addItem(NSMenuItem(title: "HotkeyLauncher", action: nil, keyEquivalent: ""))
+        menu.delegate = self
+
+        let titleItem = NSMenuItem(title: "HotkeyLauncher", action: nil, keyEquivalent: "")
+        statusMenuTitleItem = titleItem
+        menu.addItem(titleItem)
         menu.addItem(NSMenuItem.separator())
         
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
@@ -145,6 +155,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             settingsWindow?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    // MARK: - NSMenuDelegate
+
+    /// Keep the inert title row informative: it doubles as a status line so
+    /// the menu itself tells new users whether anything is set up yet.
+    func menuWillOpen(_ menu: NSMenu) {
+        let count = ConfigManager.shared.loadConfig().hotkeys.filter { !$0.key.isEmpty }.count
+        statusMenuTitleItem?.title = count == 0
+            ? "HotkeyLauncher — no hotkeys yet"
+            : "HotkeyLauncher — \(count) hotkey\(count == 1 ? "" : "s") active"
     }
 
     // MARK: - NSWindowDelegate

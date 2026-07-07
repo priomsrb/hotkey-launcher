@@ -1,10 +1,7 @@
 ## TODO
 
-- [ ] Add some kind of onboarding to make it clear what the app is about for new users
 - [ ] Strange bug: Open settings window. Then open another app. Press cmd+q on the app, it closes our settings window too.
-- [ ] Come up with suggested hotkeys on initial launch
 - [ ] Check if hotkeys work when entering password fields
-- [ ] Start at login
 - [ ] Add an icon
 - [ ] Fix accessibility permission not working when moving bundle to application folder.
 - [ ] Does it need to be restarted after granting permissions? Any way to make it easy for the user? Maybe adding a screenshot?
@@ -12,6 +9,9 @@
 
 ## Done
 
+- [x] Add some kind of onboarding to make it clear what the app is about for new users (Solved with: settings opens automatically on an unconfigured launch; a welcome pane explains switching + window cycling with a prominent Suggest Hotkeys button and a Start-at-login checkbox; the Accessibility prompt moved out of launch into a contextual Grant Access banner button on fresh installs; a one-time "try it now" banner after the first hotkey teaches the press-again-to-cycle behavior; the menu bar title row shows hotkey count)
+- [x] Come up with suggested hotkeys on initial launch (The Suggest Hotkeys popover is now front-and-center in the welcome pane on first launch)
+- [x] Start at login (Menu bar toggle + welcome pane checkbox, macOS 13+)
 - [x] Have option to show message/indicator when switching apps (Solved with CycleIndicatorHUD: a floating vertical list of the cycle session's window titles with the focused one highlighted, shown while the hotkey's modifiers are held and hidden the moment they're released; holding the modifiers also keeps the cycle session alive past its 1s timeout)
 - [x] Make it possible to use the tab key to navigate the UI. Should make it easy to set all the hotkeys using just the keyboard. (Solved with a selection-based model instead of Tab, since macOS only Tab-focuses small buttons when Full Keyboard Access is on: ↑/↓ selects rows, Return records, ⌫ deletes hotkey/exception, ⌘F search + Return jumps to first match, ⌘N/⇧⌘N add hotkey/exception, Esc cancels recording → clears search → closes window. Plus VoiceOver labels on icon-only controls)
 - [x] Loading indicator stays open if I launch the HotkeyLauncher app itself
