@@ -1,6 +1,5 @@
 ## TODO
 
-- [ ] Have option to show message/indicator when switching apps
 - [ ] Strange bug: Open settings window. Then open another app. Press cmd+q on the app, it closes our settings window too.
 - [ ] Come up with suggested hotkeys on initial launch
 - [ ] Check if hotkeys work when entering password fields
@@ -12,6 +11,7 @@
 
 ## Done
 
+- [x] Have option to show message/indicator when switching apps (Solved with CycleIndicatorHUD: a floating vertical list of the cycle session's window titles with the focused one highlighted, shown while the hotkey's modifiers are held and hidden the moment they're released; holding the modifiers also keeps the cycle session alive past its 1s timeout)
 - [x] Make it possible to use the tab key to navigate the UI. Should make it easy to set all the hotkeys using just the keyboard. (Solved with a selection-based model instead of Tab, since macOS only Tab-focuses small buttons when Full Keyboard Access is on: ↑/↓ selects rows, Return records, ⌫ deletes hotkey/exception, ⌘F search + Return jumps to first match, ⌘N/⇧⌘N add hotkey/exception, Esc cancels recording → clears search → closes window. Plus VoiceOver labels on icon-only controls)
 - [x] Loading indicator stays open if I launch the HotkeyLauncher app itself
 - [x] Show how much time in ms it took to switch the app (Solved with timing logs)

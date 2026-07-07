@@ -46,6 +46,8 @@ class ApplicationManager {
     private struct CycleSession {
         let bundleId: String
         let windows: [AXUIElement]
+        /// Window titles frozen alongside the window list, for the indicator
+        let titles: [String]
         var index: Int
         var lastActivity: Date
     }
@@ -53,13 +55,21 @@ class ApplicationManager {
     private var session: CycleSession?
     private let sessionTimeout: TimeInterval = 1.0
 
+    /// Alive while the hotkey's modifier keys are still held down after the
+    /// last press. Holding the modifiers keeps the session (and the cycle
+    /// indicator) alive past `sessionTimeout`; releasing them ends both.
+    private var modifierWatcher: ModifierWatcher?
+    private var modifiersStillHeld: Bool { modifierWatcher?.isHeld ?? false }
+
     private init() {}
 
     /// Activate or launch the application with the given bundle ID
     /// - If not running: Launch it
     /// - If running but not focused: Bring to focus
     /// - If already focused: Cycle to next window
-    func activateOrLaunch(bundleId: String) {
+    /// - Parameter modifiers: The hotkey's modifier flags; while they stay
+    ///   held, the window-cycle indicator is shown and the session kept alive
+    func activateOrLaunch(bundleId: String, modifiers: CGEventFlags = []) {
         print("[AppManager] activateOrLaunch called for: \(bundleId)")
         let start = Date()
         defer {
@@ -81,20 +91,28 @@ class ApplicationManager {
             return
         }
 
+        // A press for a different app supersedes any indicator still on screen
+        if let s = session, s.bundleId != bundleId {
+            CycleIndicatorHUD.shared.hide()
+        }
+
+        // A recent hotkey press for the same app means we're mid-cycle, even if
+        // macOS hasn't finished activating the app yet. Check before restarting
+        // the watcher below, which would make modifiersStillHeld trivially true.
+        let inActiveSession: Bool
+        if let s = session, s.bundleId == bundleId,
+           Date().timeIntervalSince(s.lastActivity) < sessionTimeout || modifiersStillHeld {
+            inActiveSession = true
+        } else {
+            inActiveSession = false
+        }
+
+        startModifierWatch(modifiers)
+
         guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) else {
             print("[AppManager] App not running, launching...")
             launchApp(bundleId: bundleId)
             return
-        }
-
-        // A recent hotkey press for the same app means we're mid-cycle, even if
-        // macOS hasn't finished activating the app yet
-        let inActiveSession: Bool
-        if let s = session, s.bundleId == bundleId,
-           Date().timeIntervalSince(s.lastActivity) < sessionTimeout {
-            inActiveSession = true
-        } else {
-            inActiveSession = false
         }
 
         if app.isActive || inActiveSession {
@@ -346,10 +364,15 @@ class ApplicationManager {
         raiseWindow(windows[0], of: app)
 
         // Seed a session so an immediate second press cycles to the next window
+        let titles = windowTitles(of: windows, app: app)
         session = CycleSession(bundleId: app.bundleIdentifier ?? "",
                                windows: windows,
+                               titles: titles,
                                index: 0,
                                lastActivity: Date())
+        if windows.count > 1 {
+            showIndicator(for: app, titles: titles, index: 0)
+        }
     }
 
     /// Cycle to the next window of the given application
@@ -359,7 +382,7 @@ class ApplicationManager {
 
         // Continue an active session using its cached window list
         if var s = session, s.bundleId == bundleId,
-           now.timeIntervalSince(s.lastActivity) < sessionTimeout,
+           now.timeIntervalSince(s.lastActivity) < sessionTimeout || modifiersStillHeld,
            s.windows.count > 1 {
             // Windows may have closed since the list was cached - skip dead ones
             for _ in 0..<s.windows.count {
@@ -368,6 +391,7 @@ class ApplicationManager {
                     s.lastActivity = now
                     session = s
                     print("[AppManager] Continuing cycle for \(bundleId): \(s.index + 1)/\(s.windows.count)")
+                    showIndicator(for: app, titles: s.titles, index: s.index)
                     return
                 }
             }
@@ -393,6 +417,7 @@ class ApplicationManager {
         let focusedIndex = findFocusedIndex(in: windows, app: app)
         var newSession = CycleSession(bundleId: bundleId,
                                       windows: windows,
+                                      titles: windowTitles(of: windows, app: app),
                                       index: focusedIndex,
                                       lastActivity: now)
         for _ in 0..<windows.count {
@@ -400,6 +425,43 @@ class ApplicationManager {
             if raiseWindow(windows[newSession.index], of: app) { break }
         }
         session = newSession
+        showIndicator(for: app, titles: newSession.titles, index: newSession.index)
+    }
+
+    // MARK: - Cycle indicator
+
+    /// (Re)start watching the hotkey's modifiers. Releasing them ends the
+    /// cycle session and hides the indicator.
+    private func startModifierWatch(_ modifiers: CGEventFlags) {
+        modifierWatcher?.stop()
+        modifierWatcher = nil
+        guard !modifiers.isEmpty else { return }
+        modifierWatcher = ModifierWatcher(required: modifiers) { [weak self] in
+            guard let self = self else { return }
+            CycleIndicatorHUD.shared.hide()
+            self.session = nil
+            self.modifierWatcher = nil
+        }
+    }
+
+    /// Show or refresh the cycle indicator, unless the modifiers were already
+    /// released while windows were being discovered
+    private func showIndicator(for app: NSRunningApplication, titles: [String], index: Int) {
+        guard modifiersStillHeld else { return }
+        CycleIndicatorHUD.shared.show(appIcon: app.icon, titles: titles, selectedIndex: index)
+    }
+
+    /// Titles for the indicator rows; windows without a title show the app name
+    private func windowTitles(of windows: [AXUIElement], app: NSRunningApplication) -> [String] {
+        let fallback = app.localizedName ?? "Untitled"
+        return windows.map { window in
+            var titleRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef) == .success,
+               let title = titleRef as? String, !title.isEmpty {
+                return title
+            }
+            return fallback
+        }
     }
 
     /// Find the index of the app's focused window in a list, comparing by

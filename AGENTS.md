@@ -34,6 +34,8 @@ Sources/HotkeyLauncher/
 ├── HotkeyManager.swift     # CGEvent tap for global keyboard interception
 ├── ApplicationManager.swift # App activation + window discovery/cycling (the tricky part)
 ├── LaunchHUD.swift         # Floating "Launching <App>…" bezel shown during cold launches
+├── CycleIndicatorHUD.swift # Window-cycling indicator (list of window titles, shown while
+│                           # the hotkey's modifiers are held) + ModifierWatcher
 ├── ConfigManager.swift     # JSON config load/save
 ├── Hotkey.swift            # Hotkey model + key code mapping
 ├── SettingsView.swift      # SwiftUI settings UI (running apps + hotkeys in one list)
@@ -56,7 +58,11 @@ Behavior contract for a hotkey press:
 3. Focused, or pressed again within 1s of the last press → cycle to the next window.
 
 Cycling uses a `CycleSession` that freezes the window list, so rapid presses visit every
-window exactly once per loop even while the OS z-order shifts underneath.
+window exactly once per loop even while the OS z-order shifts underneath. Holding the
+hotkey's modifier keys keeps the session alive past the 1s timeout and shows the
+CycleIndicatorHUD (window-title list, focused row highlighted); releasing the modifiers
+hides the HUD and ends the session (detected by `ModifierWatcher`: global flagsChanged
+monitor + 100ms `CGEventSource.flagsState` polling fallback).
 
 Window discovery merges three sources (`getWindowsForApp`), because none is complete alone:
 1. **Ground truth**: `windowServerWindowIDs(pid:)` asks the window server, via private

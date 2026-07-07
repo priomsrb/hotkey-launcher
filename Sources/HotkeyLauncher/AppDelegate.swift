@@ -153,7 +153,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     
     /// Handle a hotkey press
     private func handleHotkey(_ hotkey: Hotkey) {
-        ApplicationManager.shared.activateOrLaunch(bundleId: hotkey.bundleId)
+        ApplicationManager.shared.activateOrLaunch(bundleId: hotkey.bundleId,
+                                                   modifiers: hotkey.cgEventFlags)
     }
     
     /// Reload configuration from file
