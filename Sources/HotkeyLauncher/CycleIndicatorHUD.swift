@@ -58,10 +58,18 @@ final class CycleIndicatorHUD {
     /// newer showing (same trick as LaunchHUD)
     private var generation = 0
 
+    /// A quick press-and-release shouldn't flash the indicator, so the first
+    /// appearance is delayed; once visible, updates are instant
+    private let appearanceDelay: TimeInterval = 0.1
+    private var pendingReveal: DispatchWorkItem?
+
     private init() {}
 
     /// Rebuild the list and show it centered on the screen the user is
-    /// working on. Must be called on the main thread.
+    /// working on. The first appearance is delayed by `appearanceDelay`;
+    /// further calls while visible (or while a reveal is already pending)
+    /// update the content without restarting the delay. Must be called on
+    /// the main thread.
     func show(appIcon: NSImage?, titles: [String], selectedIndex: Int) {
         let panel = ensurePanel()
         generation += 1
@@ -73,6 +81,21 @@ final class CycleIndicatorHUD {
             row.widthAnchor.constraint(equalTo: rowsStack.widthAnchor).isActive = true
         }
 
+        if panel.isVisible {
+            reveal()
+        } else if pendingReveal == nil {
+            let work = DispatchWorkItem { [weak self] in
+                self?.pendingReveal = nil
+                self?.reveal()
+            }
+            pendingReveal = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + appearanceDelay, execute: work)
+        }
+    }
+
+    /// Size to the current content, position, and order front
+    private func reveal() {
+        guard let panel = panel else { return }
         if let content = panel.contentView {
             content.layoutSubtreeIfNeeded()
             let size = content.fittingSize
@@ -89,8 +112,11 @@ final class CycleIndicatorHUD {
         panel.orderFrontRegardless()
     }
 
-    /// Fade out quickly. Safe to call when not showing.
+    /// Fade out quickly, cancelling any not-yet-revealed showing. Safe to
+    /// call when not showing.
     func hide() {
+        pendingReveal?.cancel()
+        pendingReveal = nil
         guard let panel = panel, panel.isVisible else { return }
         let shownGeneration = generation
         NSAnimationContext.runAnimationGroup({ context in

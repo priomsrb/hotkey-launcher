@@ -1,5 +1,6 @@
 ## TODO
 
+- [ ] Add some kind of onboarding to make it clear what the app is about for new users
 - [ ] Strange bug: Open settings window. Then open another app. Press cmd+q on the app, it closes our settings window too.
 - [ ] Come up with suggested hotkeys on initial launch
 - [ ] Check if hotkeys work when entering password fields
