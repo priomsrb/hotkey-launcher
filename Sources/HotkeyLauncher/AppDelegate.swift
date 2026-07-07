@@ -21,6 +21,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             print("Accessibility permission not granted — window cycling will be limited until approved")
         }
 
+        // Track window focus history so cycling can order windows by actual
+        // most-recent use instead of guessing from z-order
+        WindowFocusTracker.shared.start()
+
         // Load configuration
         let config = ConfigManager.shared.loadConfig()
         hotkeys = config.hotkeys

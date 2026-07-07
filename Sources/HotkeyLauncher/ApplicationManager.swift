@@ -91,9 +91,13 @@ class ApplicationManager {
             return
         }
 
-        // A press for a different app supersedes any indicator still on screen
+        // A press for a different app supersedes any session still alive
+        // (modifiers can stay held across two hotkeys): commit it so the
+        // window it landed on is recorded as used, and drop its indicator
         if let s = session, s.bundleId != bundleId {
             CycleIndicatorHUD.shared.hide()
+            commitSession(s)
+            session = nil
         }
 
         // A recent hotkey press for the same app means we're mid-cycle, even if
@@ -126,7 +130,8 @@ class ApplicationManager {
 
     // MARK: - Window discovery
 
-    /// Get all windows for an app, sorted focused-first then by z-order.
+    /// Get all windows for an app, sorted focused-first then most recently
+    /// used (per WindowFocusTracker), with z-order as the fallback.
     ///
     /// The window server (via private SkyLight APIs) tells us exactly which
     /// window IDs the app owns across every space, including fullscreen ones.
@@ -210,10 +215,21 @@ class ApplicationManager {
         }
 
         let zOrderRank = ApplicationManager.zOrderRanks()
+        let focusTimes = WindowFocusTracker.shared.lastFocusTimes
 
+        // Most-recently-used order: focused window, then tracked focus times
+        // (newest first). Z-order is only a fallback for windows never seen
+        // focused - it can't be trusted for recency because cycling raises
+        // pass-through windows and other-space windows have no z-order here.
         return merged.sorted { a, b in
             if a.id == focusedID { return true }
             if b.id == focusedID { return false }
+            switch (focusTimes[a.id], focusTimes[b.id]) {
+            case let (timeA?, timeB?) where timeA != timeB: return timeA > timeB
+            case (.some, .none): return true
+            case (.none, .some): return false
+            default: break
+            }
             let rankA = zOrderRank[a.id] ?? Int.max
             let rankB = zOrderRank[b.id] ?? Int.max
             if rankA != rankB { return rankA < rankB }
@@ -361,6 +377,9 @@ class ApplicationManager {
         }
 
         print("[AppManager] Raising most recently focused window of \(windows.count)")
+        // Raises made during a session mustn't count as the user "using" the
+        // window; the one the session ends on is stamped when it commits
+        WindowFocusTracker.shared.beginCycleSuppression(pid: app.processIdentifier)
         raiseWindow(windows[0], of: app)
 
         // Seed a session so an immediate second press cycles to the next window
@@ -384,6 +403,7 @@ class ApplicationManager {
         if var s = session, s.bundleId == bundleId,
            now.timeIntervalSince(s.lastActivity) < sessionTimeout || modifiersStillHeld,
            s.windows.count > 1 {
+            WindowFocusTracker.shared.beginCycleSuppression(pid: app.processIdentifier)
             // Windows may have closed since the list was cached - skip dead ones
             for _ in 0..<s.windows.count {
                 s.index = (s.index + 1) % s.windows.count
@@ -414,6 +434,7 @@ class ApplicationManager {
         }
 
         // Start from whichever window is focused right now and move one past it
+        WindowFocusTracker.shared.beginCycleSuppression(pid: app.processIdentifier)
         let focusedIndex = findFocusedIndex(in: windows, app: app)
         var newSession = CycleSession(bundleId: bundleId,
                                       windows: windows,
@@ -439,9 +460,21 @@ class ApplicationManager {
         modifierWatcher = ModifierWatcher(required: modifiers) { [weak self] in
             guard let self = self else { return }
             CycleIndicatorHUD.shared.hide()
+            if let s = self.session {
+                self.commitSession(s)
+            } else {
+                WindowFocusTracker.shared.endCycleSuppression(stampingFinal: nil)
+            }
             self.session = nil
             self.modifierWatcher = nil
         }
+    }
+
+    /// A cycle session is over: the window it landed on is the one the user
+    /// actually switched to, so record it as used and lift stamp suppression
+    private func commitSession(_ s: CycleSession) {
+        let finalWindow = s.windows.indices.contains(s.index) ? s.windows[s.index] : nil
+        WindowFocusTracker.shared.endCycleSuppression(stampingFinal: finalWindow)
     }
 
     /// Show or refresh the cycle indicator, unless the modifiers were already
