@@ -18,11 +18,12 @@ swift scripts/make-icon.swift    # regenerate assets/AppIcon.icns
 notarytool keychain profile (see README); without them it ad-hoc signs and
 skips notarization.
 
-There are no automated tests. Verification is manual: it requires real hotkey presses,
-multiple app windows/spaces, and Accessibility permission. To safely experiment with
-window/AX APIs without touching the app, compile a scratch file with `swiftc` and run
-it from the terminal — terminal-spawned binaries inherit the terminal's Accessibility
-trust, so AX calls work.
+There are no automated tests. By default, tell the user what to test manually.
+If the user asks for automated testing, verification is manual: it requires
+real hotkey presses, multiple app windows/spaces, and Accessibility permission.
+To safely experiment with window/AX APIs without touching the app, compile a
+scratch file with `swiftc` and run it from the terminal — terminal-spawned
+binaries inherit the terminal's Accessibility trust, so AX calls work.
 
 ## Source map
 
