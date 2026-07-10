@@ -110,6 +110,9 @@ final class CycleIndicatorHUD {
 
         panel.alphaValue = 1
         panel.orderFrontRegardless()
+        // The shadow of a transparent window is cached from the last draw;
+        // recompute it for the new content shape
+        panel.invalidateShadow()
     }
 
     /// Fade out quickly, cancelling any not-yet-revealed showing. Safe to
@@ -190,9 +193,10 @@ final class CycleIndicatorHUD {
         effect.material = .hudWindow
         effect.state = .active
         effect.blendingMode = .behindWindow
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 12
-        effect.layer?.masksToBounds = true
+        // Round corners via maskImage, not layer.cornerRadius: the window
+        // shadow follows the mask, so no rectangular shadow edge shows
+        // around the rounded corners
+        effect.maskImage = NSImage.roundedRectMask(cornerRadius: 12)
         effect.appearance = NSAppearance(named: .vibrantDark)
 
         rowsStack.orientation = .vertical

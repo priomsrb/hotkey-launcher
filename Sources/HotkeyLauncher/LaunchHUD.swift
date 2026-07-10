@@ -113,6 +113,9 @@ final class LaunchHUD {
 
         panel.alphaValue = 1
         panel.orderFrontRegardless()
+        // The shadow of a transparent window is cached from the last draw;
+        // recompute it for the new content shape
+        panel.invalidateShadow()
     }
 
     private func scheduleDismiss(after seconds: TimeInterval) {
@@ -164,9 +167,10 @@ final class LaunchHUD {
         effect.material = .hudWindow
         effect.state = .active
         effect.blendingMode = .behindWindow
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 14
-        effect.layer?.masksToBounds = true
+        // Round corners via maskImage, not layer.cornerRadius: the window
+        // shadow follows the mask, so no rectangular shadow edge shows
+        // around the rounded corners
+        effect.maskImage = NSImage.roundedRectMask(cornerRadius: 14)
         effect.appearance = NSAppearance(named: .vibrantDark)
 
         iconView.imageScaling = .scaleProportionallyUpOrDown
