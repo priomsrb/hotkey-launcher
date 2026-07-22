@@ -389,9 +389,7 @@ class ApplicationManager {
                                titles: titles,
                                index: 0,
                                lastActivity: Date())
-        if windows.count > 1 {
-            showIndicator(for: app, titles: titles, index: 0)
-        }
+        showIndicator(for: app, titles: titles, index: 0)
     }
 
     /// Cycle to the next window of the given application
@@ -401,8 +399,7 @@ class ApplicationManager {
 
         // Continue an active session using its cached window list
         if var s = session, s.bundleId == bundleId,
-           now.timeIntervalSince(s.lastActivity) < sessionTimeout || modifiersStillHeld,
-           s.windows.count > 1 {
+           now.timeIntervalSince(s.lastActivity) < sessionTimeout || modifiersStillHeld {
             WindowFocusTracker.shared.beginCycleSuppression(pid: app.processIdentifier)
             // Windows may have closed since the list was cached - skip dead ones
             for _ in 0..<s.windows.count {
@@ -428,12 +425,8 @@ class ApplicationManager {
             return
         }
 
-        guard windows.count > 1 else {
-            raiseWindow(windows[0], of: app)
-            return
-        }
-
         // Start from whichever window is focused right now and move one past it
+        // (a no-op when there's only one, but the indicator still shows it)
         WindowFocusTracker.shared.beginCycleSuppression(pid: app.processIdentifier)
         let focusedIndex = findFocusedIndex(in: windows, app: app)
         var newSession = CycleSession(bundleId: bundleId,
